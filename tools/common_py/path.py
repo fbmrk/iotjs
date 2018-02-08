@@ -28,6 +28,9 @@ BUILD_ROOT = fs.join(PROJECT_ROOT, 'build')
 # Root Build directory.
 TOOLS_ROOT = fs.join(PROJECT_ROOT, 'tools')
 
+#Root directory for wrapper.
+WRAPPER_ROOT = fs.join(TOOLS_ROOT, 'wrapper_generator')
+
 # Root directory for dependencies.
 DEPS_ROOT = fs.join(PROJECT_ROOT, 'deps')
 

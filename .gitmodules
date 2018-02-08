@@ -10,3 +10,7 @@
 [submodule "deps/mbedtls"]
 	path = deps/mbedtls
 	url = https://github.com/ARMmbed/mbedtls.git
+[submodule "wrapper_generator"]
+	path = tools/wrapper_generator
+	url = https://github.com/fbmrk/mbed-js-wrapper-generator
+	branch = iotjs_dev

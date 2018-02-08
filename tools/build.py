@@ -192,6 +192,13 @@ def init_options():
         action='store_true', default=False,
         help='Enable to build experimental features')
 
+    parser.add_argument('--gen-wrap-cpp',
+        help='C++ to JS generator, path to cpp file')
+    parser.add_argument('--gen-wrap-header',
+        help='C++ to JS generator, path to header file')
+    parser.add_argument('--gen-wrap-class',
+        help='C++ to JS generator, C++ class name')
+
     options = parser.parse_args(argv)
     options.config = build_config
 
@@ -414,6 +421,42 @@ def run_checktest(options):
                 ex.fail('Failed to pass unit tests in valgrind environment')
 
 
+def generate_wrapper(options):
+    cpp_file = options.gen_wrap_cpp
+    header_file = options.gen_wrap_header
+    class_name = options.gen_wrap_class
+    tmp_file = fs.join(path.WRAPPER_ROOT, 'tmp.o')
+
+    ex.run_cmd('arm-none-eabi-g++', ['-c', '-g',
+                                     cpp_file,
+                                     '-o', tmp_file], True)
+
+    with open(fs.join(path.WRAPPER_ROOT, 'symbols.txt'), 'w') as symbols:
+        symbols.write(ex.run_cmd_output('arm-none-eabi-objdump',
+                                        ['-Wi', '-g', tmp_file], True))
+
+    fs.chdir(path.WRAPPER_ROOT)
+
+    ex.run_cmd('npm', ['install'], True)
+    ex.run_cmd('node', ['generate.js',
+                        'symbols.txt',
+                        class_name,
+                        '--header-file',
+                        header_file.split('/')[-1]])
+
+    fs.chdir(path.PROJECT_ROOT)
+
+    fs.remove(tmp_file)
+    fs.remove(fs.join(path.WRAPPER_ROOT, 'symbols.txt'))
+    fs.copy(cpp_file, fs.join(path.WRAPPER_ROOT, 'output',
+                              class_name.lower() + '_module', 'lib'))
+    fs.copy(header_file, fs.join(path.WRAPPER_ROOT, 'output',
+                              class_name.lower() + '_module', 'lib'))
+
+    options.external_modules.add(fs.join(path.WRAPPER_ROOT, 'output',
+                                 class_name.lower() + '_module'))
+    options.cmake_param.append('-DENABLE_MODULE_' + class_name.upper() +'=ON')
+
 if __name__ == '__main__':
     # Initialize build option object.
     options = init_options()
@@ -427,6 +470,16 @@ if __name__ == '__main__':
     if not options.no_init_submodule:
         print_progress('Initialize submodule')
         init_submodule()
+
+    if (options.gen_wrap_cpp and
+        options.gen_wrap_header and options.gen_wrap_class):
+        generate_wrapper(options)
+    elif (options.gen_wrap_cpp or
+          options.gen_wrap_header or options.gen_wrap_class):
+          ex.fail('Use all three options to generate wrapper:'
+                   + ' --gen-wrap-cpp'
+                   + ' --gen-wrap-header'
+                   + ' --gen-wrap-class')
 
     build_iotjs(options)
 
