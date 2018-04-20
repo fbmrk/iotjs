@@ -60,15 +60,39 @@ C_CHAR_TYPES = [
     'unsigned char'
 ]
 
-C_STRING_TYPES = [
-    'char*',
-    'signed char*',
-    'unsigned char*'
-]
-
 INCLUDE = '''
 #include "jerryscript.h"
 #include "{HEADER}"
+'''
+
+MACROS = '''
+#define CHECK_ARG_COUNT(COUNT, FUNC) \\
+  do { \\
+    if (args_cnt != COUNT) \\
+    { \\
+      const char* msg = "Wrong argument count for "#FUNC"(), expected "#COUNT"."; \\
+      return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg); \\
+    } \\
+  } while (0)
+
+#define CHECK_TYPE(TYPE, JVAL, FUNC) \\
+  do { \\
+    if (!jerry_value_is_##TYPE (JVAL)) \\
+    { \\
+      const char* msg = "Wrong argument type for "#FUNC"(), expected "#TYPE"."; \\
+      return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg); \\
+    } \\
+  } while (0)
+
+#define REGIST_FUNCTION(OBJECT, NAME, HANDLER) \\
+  do { \\
+    jerry_value_t NAME##_name = jerry_create_string((const jerry_char_t*)#NAME); \\
+    jerry_value_t NAME##_func = jerry_create_external_function(HANDLER); \\
+    jerry_value_t NAME##_ret = jerry_set_property(OBJECT, NAME##_name, NAME##_func); \\
+    jerry_release_value(NAME##_name); \\
+    jerry_release_value(NAME##_func); \\
+    jerry_release_value(NAME##_ret); \\
+  } while (0)
 '''
 
 JS_FUNC_HANDLER = '''
@@ -82,61 +106,45 @@ jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
 '''
 
 JS_CHECK_ARG_COUNT = '''
-  if (args_cnt != {COUNT})
-  {{
-    const char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
-    return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
-  }}
+  CHECK_ARG_COUNT({COUNT}, {FUNC});
 '''
 
-JS_CHECK_ARG_TYPE = '''
-  if (!jerry_value_is_{TYPE} (args_p[{INDEX}]))
-  {{
-    const char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
-    return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
-  }}
+JS_CHECK_TYPE = '''
+  CHECK_TYPE({TYPE}, {JVAL}, {FUNC});
 '''
 
-JS_GET_NUM_ARG = '''
-  {TYPE} arg_{INDEX} = jerry_get_number_value (args_p[{INDEX}]);
+JS_GET_NUM = '''
+  {TYPE} {NAME} = jerry_get_number_value ({JVAL});
 '''
 
-JS_GET_BOOL_ARG = '''
-  bool arg_{INDEX} = jerry_get_boolean_value (args_p[{INDEX}]);
+JS_GET_BOOL = '''
+  bool {NAME} = jerry_get_boolean_value ({JVAL});
 '''
 
-JS_GET_CHAR_ARG = '''
-  jerry_char_t char_{INDEX}[1];
-  jerry_string_to_char_buffer (args_p[{INDEX}], char_{INDEX}, 1);
-  {TYPE} arg_{INDEX} = ({TYPE})char_{INDEX}[0];
+JS_GET_CHAR = '''
+  jerry_char_t char_{NAME}[1];
+  jerry_string_to_char_buffer ({JVAL}, char_{NAME}, 1);
+  {TYPE} {NAME} = ({TYPE})char_{NAME}[0];
 '''
 
-JS_NATIVE_CALL = '''
+C_NATIVE_CALL = '''
   {RETURN}{RESULT}{NATIVE}({PARAM});
+'''
+
+JS_NATIVE_STRUCT = '''
+  {TYPE} {NAME} = {{{PARAM}}};
 '''
 
 JS_FUNC_RET = '''
   return jerry_create_{TYPE}({RESULT});
 '''
 
-JS_REGIST_FUNC = '''
-void register_function (jerry_value_t object,
-                        const char* name,
-                        jerry_external_handler_t handler)
-{
-  jerry_value_t prop_name = jerry_create_string((const jerry_char_t*)name);
-  jerry_value_t func = jerry_create_external_function(handler);
-  jerry_value_t ret = jerry_set_property(object, prop_name, func);
-  jerry_release_value(prop_name);
-  jerry_release_value(func);
-  jerry_release_value(ret);
-}
-'''
-
 JS_GET_PROP = '''
-  jerry_value_t {s}_{m}_name = jerry_create_string ((const jerry_char_t *) "{m}");
-  jerry_value_t {s}_{m}_value = jerry_get_property ({obj}, {s}_{m}_name);
-  jerry_release_value({s}_{m}_name);
+  jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
+  jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
+  jerry_release_value({NAME}_{MEM}_name);
+  {GET_VAl}
+  jerry_release_value({NAME}_{MEM}_value);
 '''
 INIT_FUNC = '''
 jerry_value_t Init{NAME}()
@@ -147,7 +155,7 @@ jerry_value_t Init{NAME}()
 }}
 '''
 
-INIT_REGIST_FUNC = '''  register_function(object, "{NAME}", {NAME}_handler);
+INIT_REGIST_FUNC = '''  REGIST_FUNCTION(object, {NAME}, {NAME}_handler);
 '''
 
 MODULES_JSON = '''
@@ -168,46 +176,19 @@ link_directories(${{MODULE_DIR}})
 list(APPEND MODULE_LIBS {LIBRARY})
 '''
 
-class IdentifierType_Visitor(c_ast.NodeVisitor):
-    def __init__(self):
-        self.idtypes = []
-
-    def visit_IdentifierType(self, node):
-        self.idtypes.append(node)
-
 
 class Struct_Visitor(c_ast.NodeVisitor):
     def __init__(self):
-        self.structs = []
+        self.structdefs = []
+        self.structdecls = []
 
     def visit_Struct(self, node):
-        if node.decls:
-            self.structs.append(node)
-
-
-class TypeDecl_Visitor(c_ast.NodeVisitor):
-    def __init__(self):
-        self.type = ''
-
-    def visit_TypeDecl(self, node):
-        if type(node.type) is c_ast.IdentifierType:
-            self.type = (' ').join(node.type.names)
-        elif type(node.type) is c_ast.Struct:
-            if node.type.name:
-                self.type = 'struct ' + node.type.name
-            else:
-                self.type = node.declname
-        elif type(node.type) is c_ast.Enum:
-            if node.type.name:
-                self.type = 'enum ' + node.type.name
-            else:
-                self.type = node.declname
-        elif type(node.type) is c_ast.Union:
-            if node.type.name:
-                self.type = 'union ' + node.type.name
-            else:
-                self.type = node.declname
-
+        if node.decls is None:
+            self.structdecls.append(node)
+        else:
+            self.structdefs.append(node)
+        for c in node:
+            self.visit(c)
 
 
 def get_typedefs(ast):
@@ -223,7 +204,7 @@ def get_typedefs(ast):
 def get_structs(ast):
     struct_visitor = Struct_Visitor()
     struct_visitor.visit(ast)
-    return struct_visitor.structs
+    return struct_visitor.structdefs
 
 
 def get_functions(ast):
@@ -263,6 +244,63 @@ def resolve_typedefs(firstlist, secondlist):
                 parent.type = first.type
 
 
+def get_base_type_value(base_type, jval, funcname, name):
+    if base_type == C_BOOL_TYPE:
+        check_type = JS_CHECK_TYPE.format(TYPE='boolean', JVAL=jval,
+                                          FUNC=funcname)
+        get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
+
+    elif base_type in C_NUMBER_TYPES:
+        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
+                                          FUNC=funcname)
+        get_type = JS_GET_NUM.format(TYPE=base_type, NAME=name, JVAL=jval)
+
+    elif base_type in C_CHAR_TYPES:
+        check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+                                          FUNC=funcname)
+        get_type = JS_GET_CHAR.format(TYPE=base_type, NAME=name, JVAL=jval)
+
+    return check_type + get_type
+
+
+def generate_c_values(node, jval, funcname, name, index):
+    if type(node.type) is c_ast.TypeDecl:
+        if type(node.type.type) is c_ast.IdentifierType:
+            nodetype = (' ').join(node.type.type.names)
+            if nodetype == C_VOID_TYPE:
+                return
+            else:
+                result = get_base_type_value(nodetype, jval, funcname, name)
+                return result
+
+        elif type(node.type.type) is c_ast.Struct:
+            struct_members = []
+            struct = node.type.type
+
+            if struct.name is None:
+                structname = node.type.declname + index
+                structtype = node.type.declname
+            else:
+                structname = struct.name + index
+                structtype = 'struct ' + struct.name
+
+            result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
+
+            for decl in struct:
+                getval = generate_c_values(decl, structname+'_'+decl.name+'_value', funcname, structname+'_'+decl.name, index)
+
+                result += JS_GET_PROP.format(NAME=structname,
+                                             MEM=decl.name,
+                                             OBJ=jval,
+                                             GET_VAl=getval)
+                struct_members.append(structname+'_'+decl.name)
+
+            result += JS_NATIVE_STRUCT.format(TYPE=structtype,
+                                              NAME=name,
+                                              PARAM=(',').join(struct_members))
+            return result
+
+
 def generate_jerry_functions(functions):
     for function in functions:
         funcname = function.name
@@ -278,50 +316,12 @@ def generate_jerry_functions(functions):
                                                             FUNC=funcname))
 
             for index, param in enumerate(params):
-                native_params.append('arg_' + str(index))
-
-                if type(param.type) is c_ast.TypeDecl:
-                    if type(param.type.type) is c_ast.IdentifierType:
-                        paramtype = (' ').join(param.type.type.names)
-
-                        if paramtype in C_NUMBER_TYPES:
-                            jerry_function.append(JS_CHECK_ARG_TYPE.format(TYPE='number',
-                                                                           INDEX=index,
-                                                                           FUNC=funcname))
-                            jerry_function.append(JS_GET_NUM_ARG.format(TYPE=paramtype,
-                                                                        INDEX=index))
-                        elif paramtype in C_CHAR_TYPES:
-                            jerry_function.append(JS_CHECK_ARG_TYPE.format(TYPE='string',
-                                                                           INDEX=index,
-                                                                           FUNC=funcname))
-                            jerry_function.append(JS_GET_CHAR_ARG.format(TYPE=paramtype,
-                                                                         INDEX=index))
-                        elif paramtype == C_BOOL_TYPE:
-                            jerry_function.append(JS_CHECK_ARG_TYPE.format(TYPE='boolean',
-                                                                           INDEX=index,
-                                                                           FUNC=funcname))
-                            jerry_function.append(JS_GET_BOOL_ARG.format(INDEX=index))
-
-                    elif type(param.type.type) is c_ast.Struct:
-                        struct = param.type.type
-                        jerry_function.append(JS_CHECK_ARG_TYPE.format(TYPE='object',
-                                                                       INDEX=index,
-                                                                       FUNC=funcname))
-
-                        for decl in struct:
-                            jerry_function.append(JS_GET_PROP.format(s=struct.name,
-                                                                     m=decl.name,
-                                                                     obj='args_p['+str(index)+']'))
-
-                            if type(decl.type) is c_ast.TypeDecl:
-                                if type(decl.type.type) is c_ast.IdentifierType:
-                                    membertype = (' ').join(decl.type.type.names)
-                    elif type(param.type.type) is c_ast.Union:
-                        pass
-                    elif type(param.type.type) is c_ast.Enum:
-                        pass
-                elif type(param.type) is c_ast.PtrDecl:
-                    pass
+                index = str(index)
+                result = generate_c_values(param, 'args_p['+index+']',
+                                           funcname, 'arg_' + index, index)
+                if result:
+                    native_params.append('arg_' + index)
+                    jerry_function.append(result)
 
         native_params = (', ').join(native_params)
 
@@ -331,7 +331,7 @@ def generate_jerry_functions(functions):
 
                 if returntype == C_VOID_TYPE:
                     jerry_function.append(
-                        JS_NATIVE_CALL.format(RETURN='',
+                        C_NATIVE_CALL.format(RETURN='',
                                               RESULT='',
                                               NATIVE=funcname,
                                               PARAM=native_params))
@@ -339,7 +339,7 @@ def generate_jerry_functions(functions):
                                                              RESULT=''))
                 else:
                     jerry_function.append(
-                        JS_NATIVE_CALL.format(RETURN=returntype,
+                        C_NATIVE_CALL.format(RETURN=returntype,
                                               RESULT=' result = ',
                                               NATIVE=funcname,
                                               PARAM=native_params))
@@ -383,10 +383,15 @@ def gen_c_source(header, dirname):
     resolve_typedefs(typedefs, functions)
     resolve_typedefs(typedefs, params)
 
-    generated_source = [
-        INCLUDE.format(HEADER=dirname + '_js_wrapper.h'),
-        JS_REGIST_FUNC
-        ]
+    struct_visitor = Struct_Visitor()
+    struct_visitor.visit(ast)
+    for structdef in struct_visitor.structdefs:
+        resolve_typedefs(typedefs, structdef.decls)
+        for structdecl in struct_visitor.structdecls:
+            if structdef.name == structdecl.name:
+                structdecl.decls = structdef.decls
+
+    generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
     for jerry_function in generate_jerry_functions(functions):
         generated_source.append(jerry_function)
@@ -487,7 +492,7 @@ def generate_module(directory):
     cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
 
     with open(fs.join(output_dir, dirname + '_js_wrapper.h'), 'w') as h:
-        h.write(header_file)
+        h.write(header_file + MACROS)
 
     with open(fs.join(output_dir, dirname + '_js_wrapper.c'), 'w') as c:
         c.write(c_file)
