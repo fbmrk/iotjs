@@ -102,7 +102,14 @@ jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
                               const jerry_length_t args_cnt)
 {{
 {BODY}
+  return ret_val;
 }}
+'''
+
+JS_ARG_COMMENT = '''
+    /***************
+     * {INDEX}. ARGUMENT *
+     ***************/
 '''
 
 JS_CHECK_ARG_COUNT = '''
@@ -131,12 +138,12 @@ C_NATIVE_CALL = '''
   {RETURN}{RESULT}{NATIVE}({PARAM});
 '''
 
-JS_NATIVE_STRUCT = '''
+C_NATIVE_STRUCT = '''
   {TYPE} {NAME} = {{{PARAM}}};
 '''
 
-JS_FUNC_RET = '''
-  return jerry_create_{TYPE}({RESULT});
+JS_CREATE_VAL = '''
+  jerry_value_t {NAME} = jerry_create_{TYPE}({FROM});
 '''
 
 JS_GET_PROP = '''
@@ -146,6 +153,15 @@ JS_GET_PROP = '''
   {GET_VAl}
   jerry_release_value({NAME}_{MEM}_value);
 '''
+
+JS_SET_PROP = '''
+  jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
+  jerry_value_t {NAME}_{MEM}_res = jerry_set_property ({OBJ}, {NAME}_{MEM}_name, {JVAL});
+  jerry_release_value({JVAL});
+  jerry_release_value({NAME}_{MEM}_name);
+  jerry_release_value({NAME}_{MEM}_res);
+'''
+
 INIT_FUNC = '''
 jerry_value_t Init{NAME}()
 {{
@@ -244,34 +260,45 @@ def resolve_typedefs(firstlist, secondlist):
                 parent.type = first.type
 
 
-def get_base_type_value(base_type, jval, funcname, name):
-    if base_type == C_BOOL_TYPE:
+def get_c_type_value(c_type, jval, funcname, name):
+    if c_type == C_BOOL_TYPE:
         check_type = JS_CHECK_TYPE.format(TYPE='boolean', JVAL=jval,
                                           FUNC=funcname)
         get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
 
-    elif base_type in C_NUMBER_TYPES:
+    elif c_type in C_NUMBER_TYPES:
         check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
                                           FUNC=funcname)
-        get_type = JS_GET_NUM.format(TYPE=base_type, NAME=name, JVAL=jval)
+        get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
 
-    elif base_type in C_CHAR_TYPES:
+    elif c_type in C_CHAR_TYPES:
         check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                           FUNC=funcname)
-        get_type = JS_GET_CHAR.format(TYPE=base_type, NAME=name, JVAL=jval)
+        get_type = JS_GET_CHAR.format(TYPE=c_type, NAME=name, JVAL=jval)
 
     return check_type + get_type
 
+
+def create_js_type_value(c_type, name, cval):
+    if c_type == C_VOID_TYPE:
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
+    elif c_type == C_BOOL_TYPE:
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cval)
+    elif c_type in C_NUMBER_TYPES:
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+    elif c_type in C_CHAR_TYPES:
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='string', FROM=cval)
+
+    return result
 
 def generate_c_values(node, jval, funcname, name, index):
     if type(node.type) is c_ast.TypeDecl:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
             if nodetype == C_VOID_TYPE:
-                return
+                result = None
             else:
-                result = get_base_type_value(nodetype, jval, funcname, name)
-                return result
+                result = get_c_type_value(nodetype, jval, funcname, name)
 
         elif type(node.type.type) is c_ast.Struct:
             struct_members = []
@@ -295,10 +322,46 @@ def generate_c_values(node, jval, funcname, name, index):
                                              GET_VAl=getval)
                 struct_members.append(structname+'_'+decl.name)
 
-            result += JS_NATIVE_STRUCT.format(TYPE=structtype,
-                                              NAME=name,
-                                              PARAM=(',').join(struct_members))
-            return result
+            result += C_NATIVE_STRUCT.format(TYPE=structtype,
+                                             NAME=name,
+                                             PARAM=(',').join(struct_members))
+        return result
+
+
+def generate_js_value(node, cval, name):
+    if type(node.type) is c_ast.TypeDecl:
+        if type(node.type.type) is c_ast.IdentifierType:
+            nodetype = (' ').join(node.type.type.names)
+            result = create_js_type_value(nodetype, name, cval)
+
+            return nodetype, result
+
+        elif type(node.type.type) is c_ast.Struct:
+            struct = node.type.type
+            structtypes = []
+
+            if struct.name is None:
+                structname = node.type.declname
+                structtypes.append(node.type.declname)
+            else:
+                structname = struct.name
+                structtypes.append('struct ' + struct.name)
+
+            result = JS_CREATE_VAL.format(NAME=name,
+                                          TYPE='object',
+                                          FROM='')
+
+            for decl in struct:
+                mem_type, mem_val = generate_js_value(decl, cval+'.'+decl.name, 'js_'+structname+'_'+decl.name)
+                result += mem_val
+
+                result += JS_SET_PROP.format(NAME=structname,
+                                             MEM=decl.name,
+                                             OBJ=name,
+                                             JVAL='js_'+structname+'_'+decl.name)
+
+            return structtypes[0], result
+
 
 
 def generate_jerry_functions(functions):
@@ -306,7 +369,6 @@ def generate_jerry_functions(functions):
         funcname = function.name
         funcdecl = function.type
         paramlist = funcdecl.args
-        ret = funcdecl.type
         jerry_function = []
         native_params = []
 
@@ -321,45 +383,28 @@ def generate_jerry_functions(functions):
                                            funcname, 'arg_' + index, index)
                 if result:
                     native_params.append('arg_' + index)
-                    jerry_function.append(result)
+                    comment = JS_ARG_COMMENT.format(INDEX=index)
+                    jerry_function.append(comment+result)
+                else:
+                    jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0,
+                                                                  FUNC=funcname)
 
         native_params = (', ').join(native_params)
 
-        if type(ret) is c_ast.TypeDecl:
-            if type(ret.type) is c_ast.IdentifierType:
-                returntype =(' ').join(ret.type.names)
+        return_type, result = generate_js_value(funcdecl, 'result', 'ret_val')
 
-                if returntype == C_VOID_TYPE:
-                    jerry_function.append(
-                        C_NATIVE_CALL.format(RETURN='',
-                                              RESULT='',
-                                              NATIVE=funcname,
-                                              PARAM=native_params))
-                    jerry_function.append(JS_FUNC_RET.format(TYPE='undefined',
-                                                             RESULT=''))
-                else:
-                    jerry_function.append(
-                        C_NATIVE_CALL.format(RETURN=returntype,
-                                              RESULT=' result = ',
-                                              NATIVE=funcname,
-                                              PARAM=native_params))
-                    if returntype in C_NUMBER_TYPES:
-                        jerry_function.append(JS_FUNC_RET.format(TYPE='number',
-                                                                 RESULT='result'))
-                    elif returntype in C_CHAR_TYPES:
-                        jerry_function.append(
-                            JS_FUNC_RET.format(TYPE='string',
-                                               RESULT='(jerry_char_ptr_t)(&result)'))
-                    elif returntype == C_BOOL_TYPE:
-                        jerry_function.append(JS_FUNC_RET.format(TYPE='boolean',
-                                                                 RESULT='result'))
+        if return_type == C_VOID_TYPE:
+            jerry_function.append(C_NATIVE_CALL.format(RETURN='',
+                                                       RESULT='',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
+        else:
+            jerry_function.append(C_NATIVE_CALL.format(RETURN=return_type,
+                                                       RESULT=' result = ',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
 
-            elif type(ret.type) is c_ast.Struct:
-                pass
-            elif type(ret.type) is c_ast.Union:
-                pass
-            elif type(ret.type) is c_ast.Enum:
-                pass
+        jerry_function.append(result)
 
         yield JS_FUNC_HANDLER.format(NAME=funcname,
                                      BODY=('\n').join(jerry_function))
