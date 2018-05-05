@@ -25,42 +25,41 @@ C_VOID_TYPE = 'void'
 
 C_BOOL_TYPE = '_Bool'
 
-C_NUMBER_TYPES = [
-    'short',
-    'short int',
-    'signed short',
-    'signed short int',
-    'unsigned short',
-    'unsigned short int',
-    'int',
-    'signed',
-    'signed int',
-    'unsigned',
-    'unsigned int',
-    'long',
-    'long int',
-    'signed long',
-    'signed long int',
-    'unsigned long',
-    'unsigned long int',
-    'long long',
-    'long long int',
-    'signed long long',
-    'signed long long int',
-    'unsigned long long',
-    'unsigned long long int',
-    'float',
-    'double',
-    'long double',
-]
+C_CHAR_TYPES = 'char'
 
-C_CHAR_TYPES = [
-    'char',
-    'signed char',
-    'unsigned char'
-]
+C_NUMBER_TYPES = {
+    'signed char': 'INT8',
+    'unsigned char': 'UINT8',
+    'short': 'INT16',
+    'short int': 'INT16',
+    'signed short': 'INT16',
+    'signed short int': 'INT16',
+    'unsigned short': 'UINT16',
+    'unsigned short int': 'UINT16',
+    'int': 'INT32',
+    'signed': 'INT32',
+    'signed int': 'INT32',
+    'unsigned': 'UINT32',
+    'unsigned int': 'UINT32',
+    'long': 'INT32',
+    'long int': 'INT32',
+    'signed long': 'INT32',
+    'signed long int': 'INT32',
+    'unsigned long': 'UINT32',
+    'unsigned long int': 'UINT32',
+    'long long': 'INT32',
+    'long long int': 'INT32',
+    'signed long long': 'INT32',
+    'signed long long int': 'INT32',
+    'unsigned long long': 'UINT32',
+    'unsigned long long int': 'UINT32',
+    'float': 'FLOAT32',
+    'double': 'FLOAT64',
+    'long double': 'FLOAT64'
+}
 
 INCLUDE = '''
+#include <stdlib.h>  // If there are pointers, malloc() and free() required
 #include "jerryscript.h"
 #include "{HEADER}"
 '''
@@ -80,6 +79,15 @@ MACROS = '''
     if (!jerry_value_is_##TYPE (JVAL)) \\
     { \\
       const char* msg = "Wrong argument type for "#FUNC"(), expected "#TYPE"."; \\
+      return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg); \\
+    } \\
+  } while (0)
+
+#define CHECK_TYPES(TYPE1, TYPE2, JVAL, FUNC) \\
+  do { \\
+    if (!jerry_value_is_##TYPE1 (JVAL) || !jerry_value_is_##TYPE2 (JVAL)) \\
+    { \\
+      const char* msg = "Wrong argument type for "#FUNC"(), expected "#TYPE1" or "#TYPE2"."; \\
       return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg); \\
     } \\
   } while (0)
@@ -120,6 +128,10 @@ JS_CHECK_TYPE = '''
   CHECK_TYPE({TYPE}, {JVAL}, {FUNC});
 '''
 
+JS_CHECK_TYPES = '''
+  CHECK_TYPES({TYPE1}, {TYPE2}, {JVAL}, {FUNC});
+'''
+
 JS_GET_NUM = '''
   {TYPE} {NAME} = jerry_get_number_value ({JVAL});
 '''
@@ -129,9 +141,59 @@ JS_GET_BOOL = '''
 '''
 
 JS_GET_CHAR = '''
-  jerry_char_t char_{NAME}[1];
-  jerry_string_to_char_buffer ({JVAL}, char_{NAME}, 1);
-  {TYPE} {NAME} = ({TYPE})char_{NAME}[0];
+  {TYPE} char_{NAME}[1];
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)char_{NAME}, 1);
+  {TYPE} {NAME} = char_{NAME}[0];
+'''
+
+JS_GET_STRING = '''
+  jerry_size_t size_{NAME} = jerry_get_string_size ({JVAL});
+  {TYPE} {NAME}[size_{NAME}];
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, size_{NAME});
+  {NAME}[size_{NAME}] = '\\0';
+'''
+
+JS_GET_POINTER = '''
+  {TYPE} * {NAME} = NULL;
+  jerry_length_t {NAME}_byteLength = 0;
+  jerry_length_t {NAME}_byteOffset = 0;
+  jerry_value_t {NAME}_buffer;
+  if(jerry_value_is_typedarray({JVAL}))
+  {{
+    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
+    {NAME} = ({TYPE}*)malloc({NAME}_byteLength);
+    if({NAME} == NULL)
+    {{
+      jerry_release_value({NAME}_buffer);
+      return jerry_create_error(JERRY_ERROR_COMMON, (const jerry_char_t*)"Fail to allocate memory.");
+    }}
+    jerry_arraybuffer_read({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+  }}
+'''
+
+JS_FREE_POINTER = '''
+  if(jerry_value_is_typedarray({JVAL}))
+  {{
+    jerry_arraybuffer_write({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+    jerry_release_value({NAME}_buffer);
+    free({NAME});
+  }}
+'''
+
+JS_CREATE_BUFFER = '''
+  jerry_value_t {NAME};
+  if({FROM} != NULL)
+  {{
+    jerry_length_t {NAME}_byteLength = sizeof({TYPE});
+    jerry_value_t {NAME}_buffer = jerry_create_arraybuffer({NAME}_byteLength);
+    jerry_arraybuffer_write({NAME}_buffer, 0, (uint8_t*){FROM}, {NAME}_byteLength);
+    {NAME} = jerry_create_typedarray_for_arraybuffer (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer);
+    jerry_release_value({NAME}_buffer);
+  }}
+  else
+  {{
+    {NAME} = jerry_create_null();
+  }}
 '''
 
 C_NATIVE_CALL = '''
@@ -271,7 +333,7 @@ def get_c_type_value(c_type, jval, funcname, name):
                                           FUNC=funcname)
         get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
 
-    elif c_type in C_CHAR_TYPES:
+    elif c_type == C_CHAR_TYPES:
         check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                           FUNC=funcname)
         get_type = JS_GET_CHAR.format(TYPE=c_type, NAME=name, JVAL=jval)
@@ -286,18 +348,19 @@ def create_js_type_value(c_type, name, cval):
         result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cval)
     elif c_type in C_NUMBER_TYPES:
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
-    elif c_type in C_CHAR_TYPES:
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='string', FROM=cval)
+    elif c_type == C_CHAR_TYPES:
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='string', FROM='(jerry_char_ptr_t)'+cval)
 
     return result
 
 def generate_c_values(node, jval, funcname, name, index):
+    result = None
+    buffers_to_free = []
+
     if type(node.type) is c_ast.TypeDecl:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
-            if nodetype == C_VOID_TYPE:
-                result = None
-            else:
+            if nodetype != C_VOID_TYPE:
                 result = get_c_type_value(nodetype, jval, funcname, name)
 
         elif type(node.type.type) is c_ast.Struct:
@@ -314,7 +377,9 @@ def generate_c_values(node, jval, funcname, name, index):
             result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
 
             for decl in struct:
-                getval = generate_c_values(decl, structname+'_'+decl.name+'_value', funcname, structname+'_'+decl.name, index)
+                getval, buffers = generate_c_values(decl, structname+'_'+decl.name+'_value', funcname, structname+'_'+decl.name, index)
+
+                buffers_to_free += buffers
 
                 result += JS_GET_PROP.format(NAME=structname,
                                              MEM=decl.name,
@@ -325,10 +390,36 @@ def generate_c_values(node, jval, funcname, name, index):
             result += C_NATIVE_STRUCT.format(TYPE=structtype,
                                              NAME=name,
                                              PARAM=(',').join(struct_members))
-        return result
+
+        elif type(node.type.type) is c_ast.Enum:
+            result = get_c_type_value('int', jval, funcname, name)
+
+    elif (type(node.type) is c_ast.PtrDecl or
+          type(node.type) is c_ast.ArrayDecl):
+        if (type(node.type.type) is c_ast.TypeDecl and
+        type(node.type.type.type) is c_ast.IdentifierType):
+            nodetype = (' ').join(node.type.type.type.names)
+            if nodetype == C_CHAR_TYPES:
+                check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+                                                  FUNC=funcname)
+                get_type = JS_GET_STRING.format(TYPE=nodetype, NAME=name, JVAL=jval)
+                result = check_type + get_type
+
+            elif nodetype in C_NUMBER_TYPES:
+                check_type = JS_CHECK_TYPES.format(TYPE1='null', TYPE2='typedarray', JVAL=jval,
+                                                  FUNC=funcname)
+                get_type = JS_GET_POINTER.format(TYPE=nodetype, NAME=name, JVAL=jval)
+                result = check_type + get_type
+
+                buffers_to_free.append(JS_FREE_POINTER.format(NAME=name, JVAL=jval))
+
+    return result, buffers_to_free
 
 
 def generate_js_value(node, cval, name):
+    nodetype = None
+    result = None
+
     if type(node.type) is c_ast.TypeDecl:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
@@ -338,14 +429,13 @@ def generate_js_value(node, cval, name):
 
         elif type(node.type.type) is c_ast.Struct:
             struct = node.type.type
-            structtypes = []
 
             if struct.name is None:
                 structname = node.type.declname
-                structtypes.append(node.type.declname)
+                nodetype = node.type.declname
             else:
                 structname = struct.name
-                structtypes.append('struct ' + struct.name)
+                nodetype = 'struct ' + struct.name
 
             result = JS_CREATE_VAL.format(NAME=name,
                                           TYPE='object',
@@ -360,8 +450,23 @@ def generate_js_value(node, cval, name):
                                              OBJ=name,
                                              JVAL='js_'+structname+'_'+decl.name)
 
-            return structtypes[0], result
+        elif type(node.type.type) is c_ast.Enum:
+            nodetype = 'int'
+            result = get_c_type_value(nodetype, name, cval)
 
+    elif type(node.type) is c_ast.PtrDecl:
+        if (type(node.type.type) is c_ast.TypeDecl and
+        type(node.type.type.type) is c_ast.IdentifierType):
+            nodetype = (' ').join(node.type.type.type.names)
+            if nodetype == C_CHAR_TYPES:
+                result = create_js_type_value(nodetype, name, cval)
+                nodetype += '*'
+
+            elif nodetype in C_NUMBER_TYPES:
+                result = JS_CREATE_BUFFER.format(NAME=name, FROM=cval, TYPE=nodetype, ARRAY_TYPE=C_NUMBER_TYPES[nodetype])
+                nodetype += '*'
+
+    return nodetype, result
 
 
 def generate_jerry_functions(functions):
@@ -371,6 +476,7 @@ def generate_jerry_functions(functions):
         paramlist = funcdecl.args
         jerry_function = []
         native_params = []
+        buffers_to_free = []
 
         if paramlist:
             params = paramlist.params
@@ -379,10 +485,11 @@ def generate_jerry_functions(functions):
 
             for index, param in enumerate(params):
                 index = str(index)
-                result = generate_c_values(param, 'args_p['+index+']',
+                result, buffers = generate_c_values(param, 'args_p['+index+']',
                                            funcname, 'arg_' + index, index)
                 if result:
                     native_params.append('arg_' + index)
+                    buffers_to_free += buffers
                     comment = JS_ARG_COMMENT.format(INDEX=index)
                     jerry_function.append(comment+result)
                 else:
@@ -404,6 +511,7 @@ def generate_jerry_functions(functions):
                                                        NATIVE=funcname,
                                                        PARAM=native_params))
 
+        jerry_function += buffers_to_free
         jerry_function.append(result)
 
         yield JS_FUNC_HANDLER.format(NAME=funcname,
