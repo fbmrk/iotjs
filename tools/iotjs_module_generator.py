@@ -85,7 +85,7 @@ MACROS = '''
 
 #define CHECK_TYPES(TYPE1, TYPE2, JVAL, FUNC) \\
   do { \\
-    if (!jerry_value_is_##TYPE1 (JVAL) || !jerry_value_is_##TYPE2 (JVAL)) \\
+    if (!jerry_value_is_##TYPE1 (JVAL) && !jerry_value_is_##TYPE2 (JVAL)) \\
     { \\
       const char* msg = "Wrong argument type for "#FUNC"(), expected "#TYPE1" or "#TYPE2"."; \\
       return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t*)msg); \\
@@ -100,6 +100,16 @@ MACROS = '''
     jerry_release_value(NAME##_name); \\
     jerry_release_value(NAME##_func); \\
     jerry_release_value(NAME##_ret); \\
+  } while (0)
+
+#define REGIST_ENUM(OBJECT, ENUM) \\
+  do { \\
+    jerry_value_t ENUM##_name = jerry_create_string((const jerry_char_t*)#ENUM); \\
+    jerry_value_t ENUM##_enum = jerry_create_number(ENUM); \\
+    jerry_value_t ENUM##_ret = jerry_set_property(OBJECT, ENUM##_name, ENUM##_enum); \\
+    jerry_release_value(ENUM##_name); \\
+    jerry_release_value(ENUM##_enum); \\
+    jerry_release_value(ENUM##_ret); \\
   } while (0)
 '''
 
@@ -141,14 +151,13 @@ JS_GET_BOOL = '''
 '''
 
 JS_GET_CHAR = '''
-  {TYPE} char_{NAME}[1];
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)char_{NAME}, 1);
-  {TYPE} {NAME} = char_{NAME}[0];
+  char {NAME};
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
 '''
 
 JS_GET_STRING = '''
   jerry_size_t size_{NAME} = jerry_get_string_size ({JVAL});
-  {TYPE} {NAME}[size_{NAME}];
+  char {NAME}[size_{NAME}];
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, size_{NAME});
   {NAME}[size_{NAME}] = '\\0';
 '''
@@ -208,6 +217,14 @@ JS_CREATE_VAL = '''
   jerry_value_t {NAME} = jerry_create_{TYPE}({FROM});
 '''
 
+JS_CREATE_CHAR = '''
+  jerry_value_t {NAME} = jerry_create_string_sz((jerry_char_t*)(&{FROM}), 1);
+'''
+
+JS_CREATE_STRING = '''
+  jerry_value_t {NAME} = jerry_create_string((jerry_char_t*){FROM});
+'''
+
 JS_GET_PROP = '''
   jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
   jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
@@ -234,6 +251,9 @@ jerry_value_t Init{NAME}()
 '''
 
 INIT_REGIST_FUNC = '''  REGIST_FUNCTION(object, {NAME}, {NAME}_handler);
+'''
+
+INIT_REGIST_ENUM = '''  REGIST_ENUM(object, {ENUM});
 '''
 
 MODULES_JSON = '''
@@ -269,6 +289,15 @@ class Struct_Visitor(c_ast.NodeVisitor):
             self.visit(c)
 
 
+class Enumerator_Visitor(c_ast.NodeVisitor):
+    def __init__(self):
+        self.enumnames = []
+
+    def visit_Enumerator(self, node):
+        if not node.name in self.enumnames:
+            self.enumnames.append(node.name)
+
+
 def get_typedefs(ast):
     typedefs = []
 
@@ -283,6 +312,17 @@ def get_structs(ast):
     struct_visitor = Struct_Visitor()
     struct_visitor.visit(ast)
     return struct_visitor.structdefs
+
+
+def get_enums(ast):
+    enums = []
+
+    for decl in ast.ext:
+        if (type(decl) is c_ast.Decl and
+            type(decl.type) is c_ast.Enum):
+            enums.append(decl)
+
+    return enums
 
 
 def get_functions(ast):
@@ -336,7 +376,7 @@ def get_c_type_value(c_type, jval, funcname, name):
     elif c_type == C_CHAR_TYPES:
         check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                           FUNC=funcname)
-        get_type = JS_GET_CHAR.format(TYPE=c_type, NAME=name, JVAL=jval)
+        get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
 
     return check_type + get_type
 
@@ -349,7 +389,7 @@ def create_js_type_value(c_type, name, cval):
     elif c_type in C_NUMBER_TYPES:
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
     elif c_type == C_CHAR_TYPES:
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='string', FROM='(jerry_char_ptr_t)'+cval)
+        result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
 
     return result
 
@@ -402,7 +442,7 @@ def generate_c_values(node, jval, funcname, name, index):
             if nodetype == C_CHAR_TYPES:
                 check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                                   FUNC=funcname)
-                get_type = JS_GET_STRING.format(TYPE=nodetype, NAME=name, JVAL=jval)
+                get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
                 result = check_type + get_type
 
             elif nodetype in C_NUMBER_TYPES:
@@ -452,14 +492,14 @@ def generate_js_value(node, cval, name):
 
         elif type(node.type.type) is c_ast.Enum:
             nodetype = 'int'
-            result = get_c_type_value(nodetype, name, cval)
+            result = create_js_type_value(nodetype, name, cval)
 
     elif type(node.type) is c_ast.PtrDecl:
         if (type(node.type.type) is c_ast.TypeDecl and
         type(node.type.type.type) is c_ast.IdentifierType):
             nodetype = (' ').join(node.type.type.type.names)
             if nodetype == C_CHAR_TYPES:
-                result = create_js_type_value(nodetype, name, cval)
+                result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
                 nodetype += '*'
 
             elif nodetype in C_NUMBER_TYPES:
@@ -549,9 +589,15 @@ def gen_c_source(header, dirname):
     for jerry_function in generate_jerry_functions(functions):
         generated_source.append(jerry_function)
 
+    enum_visitor = Enumerator_Visitor()
+    enum_visitor.visit(ast)
+
     init_function = []
     for function in functions:
         init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+
+    for enumname in enum_visitor.enumnames:
+        init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))
@@ -585,7 +631,8 @@ def create_header_to_parse(header_name, copy_dir):
     ast = parse_file(header_name, use_cpp=True, cpp_args=preproc_args)
     typedefs = get_typedefs(ast)
     structs = get_structs(ast)
-    ast = c_ast.FileAST(typedefs + structs)
+    enums = get_enums(ast)
+    ast = c_ast.FileAST(typedefs + structs + enums)
 
     for root, dirs, files in os.walk(copy_dir):
         for file in files:
