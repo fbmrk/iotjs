@@ -288,6 +288,14 @@ class Struct_Visitor(c_ast.NodeVisitor):
         for c in node:
             self.visit(c)
 
+    def visit_Union(self, node):
+        if node.decls is None:
+            self.structdecls.append(node)
+        else:
+            self.structdefs.append(node)
+        for c in node:
+            self.visit(c)
+
 
 class Enumerator_Visitor(c_ast.NodeVisitor):
     def __init__(self):
@@ -403,16 +411,20 @@ def generate_c_values(node, jval, funcname, name, index):
             if nodetype != C_VOID_TYPE:
                 result = get_c_type_value(nodetype, jval, funcname, name)
 
-        elif type(node.type.type) is c_ast.Struct:
+        elif (type(node.type.type) is c_ast.Struct or
+            type(node.type.type) is c_ast.Union):
             struct_members = []
             struct = node.type.type
 
             if struct.name is None:
                 structname = node.type.declname + index
                 structtype = node.type.declname
-            else:
+            elif type(node.type.type) is c_ast.Struct:
                 structname = struct.name + index
                 structtype = 'struct ' + struct.name
+            elif type(node.type.type) is c_ast.Union:
+                structname = struct.name + index
+                structtype = 'union ' + struct.name
 
             result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
 
@@ -467,15 +479,19 @@ def generate_js_value(node, cval, name):
 
             return nodetype, result
 
-        elif type(node.type.type) is c_ast.Struct:
+        elif (type(node.type.type) is c_ast.Struct or
+            type(node.type.type) is c_ast.Union):
             struct = node.type.type
 
             if struct.name is None:
                 structname = node.type.declname
                 nodetype = node.type.declname
-            else:
+            elif type(node.type.type) is c_ast.Struct:
                 structname = struct.name
                 nodetype = 'struct ' + struct.name
+            elif type(node.type.type) is c_ast.Union:
+                structname = struct.name
+                nodetype = 'union ' + struct.name
 
             result = JS_CREATE_VAL.format(NAME=name,
                                           TYPE='object',
