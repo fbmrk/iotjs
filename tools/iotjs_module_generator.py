@@ -17,7 +17,7 @@
 import os
 import sys
 
-from pycparser import c_parser, c_ast, parse_file, c_generator
+from pycparser import c_ast, parse_file
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
@@ -275,10 +275,11 @@ list(APPEND MODULE_LIBS {LIBRARY})
 '''
 
 
-class Struct_Visitor(c_ast.NodeVisitor):
+class AST_Visitor(c_ast.NodeVisitor):
     def __init__(self):
         self.structdefs = []
         self.structdecls = []
+        self.enumnames = []
 
     def visit_Struct(self, node):
         if node.decls is None:
@@ -296,11 +297,6 @@ class Struct_Visitor(c_ast.NodeVisitor):
         for c in node:
             self.visit(c)
 
-
-class Enumerator_Visitor(c_ast.NodeVisitor):
-    def __init__(self):
-        self.enumnames = []
-
     def visit_Enumerator(self, node):
         if not node.name in self.enumnames:
             self.enumnames.append(node.name)
@@ -316,28 +312,13 @@ def get_typedefs(ast):
     return typedefs
 
 
-def get_structs(ast):
-    struct_visitor = Struct_Visitor()
-    struct_visitor.visit(ast)
-    return struct_visitor.structdefs
-
-
-def get_enums(ast):
-    enums = []
-
-    for decl in ast.ext:
-        if (type(decl) is c_ast.Decl and
-            type(decl.type) is c_ast.Enum):
-            enums.append(decl)
-
-    return enums
-
-
-def get_functions(ast):
+def get_functions(ast, api_headers):
     funcs = []
 
     for decl in ast.ext:
-        if type(decl) is c_ast.Decl and type(decl.type) is c_ast.FuncDecl:
+        if (type(decl) is c_ast.Decl and
+            type(decl.type) is c_ast.FuncDecl and
+            decl.coord.file in api_headers):
             funcs.append(decl)
 
     return funcs
@@ -574,7 +555,7 @@ def generate_jerry_functions(functions):
                                      BODY=('\n').join(jerry_function))
 
 
-def gen_c_source(header, dirname):
+def gen_c_source(header, api_headers, dirname):
 
     preproc_args = ['-Dbool=_Bool',
                     '-D__attribute__(x)=',
@@ -584,7 +565,10 @@ def gen_c_source(header, dirname):
 
     ast = parse_file(header, use_cpp=True, cpp_args=preproc_args)
 
-    functions = get_functions(ast)
+    visitor = AST_Visitor()
+    visitor.visit(ast)
+
+    functions = get_functions(ast, api_headers)
     typedefs = get_typedefs(ast)
     params = get_params(functions)
 
@@ -592,11 +576,9 @@ def gen_c_source(header, dirname):
     resolve_typedefs(typedefs, functions)
     resolve_typedefs(typedefs, params)
 
-    struct_visitor = Struct_Visitor()
-    struct_visitor.visit(ast)
-    for structdef in struct_visitor.structdefs:
+    for structdef in visitor.structdefs:
         resolve_typedefs(typedefs, structdef.decls)
-        for structdecl in struct_visitor.structdecls:
+        for structdecl in visitor.structdecls:
             if structdef.name == structdecl.name:
                 structdecl.decls = structdef.decls
 
@@ -605,14 +587,11 @@ def gen_c_source(header, dirname):
     for jerry_function in generate_jerry_functions(functions):
         generated_source.append(jerry_function)
 
-    enum_visitor = Enumerator_Visitor()
-    enum_visitor.visit(ast)
-
     init_function = []
     for function in functions:
         init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for enumname in enum_visitor.enumnames:
+    for enumname in visitor.enumnames:
         init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
@@ -623,49 +602,16 @@ def gen_c_source(header, dirname):
 
 def gen_header(directory):
     includes = []
+    api_headers = []
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.endswith('.h'):
+                api_headers.append(os.path.abspath(os.path.join(root, file)))
                 includes.append('#include "' +
                                 os.path.abspath(os.path.join(root, file)) +
                                 '"')
 
-    return ('\n').join(includes)
-
-
-def create_header_to_parse(header_name, copy_dir):
-    header_text = gen_header(copy_dir)
-    with open(header_name, 'w') as tmp:
-        tmp.write(header_text)
-
-    preproc_args = ['-Dbool=_Bool',
-                    '-D__attribute__(x)=',
-                    '-D__asm__(x)=',
-                    '-D__restrict=restrict',
-                    '-D__builtin_va_list=void']
-
-    ast = parse_file(header_name, use_cpp=True, cpp_args=preproc_args)
-    typedefs = get_typedefs(ast)
-    structs = get_structs(ast)
-    enums = get_enums(ast)
-    ast = c_ast.FileAST(typedefs + structs + enums)
-
-    for root, dirs, files in os.walk(copy_dir):
-        for file in files:
-            if file.endswith('.h'):
-                with open(fs.join(root, file), 'r') as f:
-                    text = f.read()
-                text = text.replace('#include', '//')
-                with open(fs.join(root, file), 'w') as f:
-                    f.write(text)
-
-    generator = c_generator.CGenerator()
-    types_and_structs = generator.visit(ast)
-
-    with open(header_name, 'w') as tmp:
-        tmp.write(types_and_structs + header_text)
-
-    return header_name
+    return ('\n').join(includes), api_headers
 
 
 def search_for_lib(directory):
@@ -696,19 +642,17 @@ def generate_module(directory):
     if not fs.isdir(output_dir):
         os.mkdir(output_dir)
 
-    copy_dir = fs.join(output_dir, dirname)
-    fs.copytree(directory, copy_dir)
-    tmp_file = fs.join(output_dir, 'tmp.h')
-    header_to_parse = create_header_to_parse(tmp_file, copy_dir)
     lib_root, lib_name = search_for_lib(directory)
 
-    header_file = gen_header(directory)
-    c_file = gen_c_source(header_to_parse, dirname)
+    header_file = fs.join(output_dir, dirname + '_js_wrapper.h')
+    header_text, api_headers = gen_header(directory)
+
+    with open(header_file, 'w') as h:
+        h.write(header_text + MACROS)
+
+    c_file = gen_c_source(header_file, api_headers, dirname)
     json_file = MODULES_JSON.format(NAME=dirname)
     cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
-
-    with open(fs.join(output_dir, dirname + '_js_wrapper.h'), 'w') as h:
-        h.write(header_file + MACROS)
 
     with open(fs.join(output_dir, dirname + '_js_wrapper.c'), 'w') as c:
         c.write(c_file)
@@ -720,9 +664,6 @@ def generate_module(directory):
         cmake.write(cmake_file)
 
     fs.copyfile(fs.join(lib_root, lib_name), fs.join(output_dir, lib_name))
-
-    fs.rmtree(copy_dir)
-    fs.remove(tmp_file)
 
     return output_dir, dirname + '_module'
 
