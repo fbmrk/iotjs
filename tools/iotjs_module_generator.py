@@ -210,7 +210,7 @@ C_NATIVE_CALL = '''
 '''
 
 C_NATIVE_STRUCT = '''
-  {TYPE} {NAME} = {{{PARAM}}};
+  {TYPE} {NAME} = {{{MEM}}};
 '''
 
 JS_CREATE_VAL = '''
@@ -351,7 +351,7 @@ def resolve_typedefs(firstlist, secondlist):
                 parent.type = first.type
 
 
-def get_c_type_value(c_type, jval, funcname, name):
+def create_c_type_value(c_type, jval, funcname, name):
     if c_type == C_BOOL_TYPE:
         check_type = JS_CHECK_TYPE.format(TYPE='boolean', JVAL=jval,
                                           FUNC=funcname)
@@ -390,7 +390,7 @@ def generate_c_values(node, jval, funcname, name, index):
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
             if nodetype != C_VOID_TYPE:
-                result = get_c_type_value(nodetype, jval, funcname, name)
+                result = create_c_type_value(nodetype, jval, funcname, name)
 
         elif (type(node.type.type) is c_ast.Struct or
             type(node.type.type) is c_ast.Union):
@@ -407,25 +407,27 @@ def generate_c_values(node, jval, funcname, name, index):
                 structname = struct.name + index
                 structtype = 'union ' + struct.name
 
-            result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
+            result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval,
+                                          FUNC=funcname)
 
             for decl in struct:
-                getval, buffers = generate_c_values(decl, structname+'_'+decl.name+'_value', funcname, structname+'_'+decl.name, index)
+                member_name = structname + '_' + decl.name
+                member_val = member_name + '_value'
+                struct_members.append(member_name)
+
+                getval, buffers = generate_c_values(decl, member_val, funcname,
+                                                    member_name, index)
 
                 buffers_to_free += buffers
 
-                result += JS_GET_PROP.format(NAME=structname,
-                                             MEM=decl.name,
-                                             OBJ=jval,
-                                             GET_VAl=getval)
-                struct_members.append(structname+'_'+decl.name)
+                result += JS_GET_PROP.format(NAME=structname, MEM=decl.name,
+                                             OBJ=jval, GET_VAl=getval)
 
-            result += C_NATIVE_STRUCT.format(TYPE=structtype,
-                                             NAME=name,
-                                             PARAM=(',').join(struct_members))
+            result += C_NATIVE_STRUCT.format(TYPE=structtype, NAME=name,
+                                             MEM=(',').join(struct_members))
 
         elif type(node.type.type) is c_ast.Enum:
-            result = get_c_type_value('int', jval, funcname, name)
+            result = create_c_type_value('int', jval, funcname, name)
 
     elif (type(node.type) is c_ast.PtrDecl or
           type(node.type) is c_ast.ArrayDecl):
@@ -439,12 +441,15 @@ def generate_c_values(node, jval, funcname, name, index):
                 result = check_type + get_type
 
             elif nodetype in C_NUMBER_TYPES:
-                check_type = JS_CHECK_TYPES.format(TYPE1='null', TYPE2='typedarray', JVAL=jval,
-                                                  FUNC=funcname)
-                get_type = JS_GET_POINTER.format(TYPE=nodetype, NAME=name, JVAL=jval)
+                check_type = JS_CHECK_TYPES.format(TYPE1='typedarray',
+                                                   TYPE2='null', JVAL=jval,
+                                                   FUNC=funcname)
+                get_type = JS_GET_POINTER.format(TYPE=nodetype, NAME=name,
+                                                 JVAL=jval)
                 result = check_type + get_type
 
-                buffers_to_free.append(JS_FREE_POINTER.format(NAME=name, JVAL=jval))
+                buffers_to_free.append(JS_FREE_POINTER.format(NAME=name,
+                                                              JVAL=jval))
 
     return result, buffers_to_free
 
@@ -474,18 +479,16 @@ def generate_js_value(node, cval, name):
                 structname = struct.name
                 nodetype = 'union ' + struct.name
 
-            result = JS_CREATE_VAL.format(NAME=name,
-                                          TYPE='object',
-                                          FROM='')
+            result = JS_CREATE_VAL.format(NAME=name, TYPE='object', FROM='')
 
             for decl in struct:
-                mem_type, mem_val = generate_js_value(decl, cval+'.'+decl.name, 'js_'+structname+'_'+decl.name)
+                member = cval + '.' + decl.name
+                member_js = 'js_' + structname + '_' + decl.name
+                mem_type, mem_val = generate_js_value(decl, member, member_js)
                 result += mem_val
 
-                result += JS_SET_PROP.format(NAME=structname,
-                                             MEM=decl.name,
-                                             OBJ=name,
-                                             JVAL='js_'+structname+'_'+decl.name)
+                result += JS_SET_PROP.format(NAME=structname, MEM=decl.name,
+                                             OBJ=name, JVAL=member_js)
 
         elif type(node.type.type) is c_ast.Enum:
             nodetype = 'int'
@@ -500,7 +503,10 @@ def generate_js_value(node, cval, name):
                 nodetype += '*'
 
             elif nodetype in C_NUMBER_TYPES:
-                result = JS_CREATE_BUFFER.format(NAME=name, FROM=cval, TYPE=nodetype, ARRAY_TYPE=C_NUMBER_TYPES[nodetype])
+                array_type = C_NUMBER_TYPES[nodetype]
+                result = JS_CREATE_BUFFER.format(NAME=name, FROM=cval,
+                                                 TYPE=nodetype,
+                                                 ARRAY_TYPE=array_type)
                 nodetype += '*'
 
     return nodetype, result
@@ -555,7 +561,7 @@ def generate_jerry_functions(functions):
                                      BODY=('\n').join(jerry_function))
 
 
-def gen_c_source(header, api_headers, dirname):
+def generate_c_source(header, api_headers, dirname):
 
     preproc_args = ['-Dbool=_Bool',
                     '-D__attribute__(x)=',
@@ -600,7 +606,7 @@ def gen_c_source(header, api_headers, dirname):
     return ('\n').join(generated_source)
 
 
-def gen_header(directory):
+def generate_header(directory):
     includes = []
     api_headers = []
     for root, dirs, files in os.walk(directory):
@@ -645,12 +651,12 @@ def generate_module(directory):
     lib_root, lib_name = search_for_lib(directory)
 
     header_file = fs.join(output_dir, dirname + '_js_wrapper.h')
-    header_text, api_headers = gen_header(directory)
+    header_text, api_headers = generate_header(directory)
 
     with open(header_file, 'w') as h:
         h.write(header_text + MACROS)
 
-    c_file = gen_c_source(header_file, api_headers, dirname)
+    c_file = generate_c_source(header_file, api_headers, dirname)
     json_file = MODULES_JSON.format(NAME=dirname)
     cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
 
