@@ -400,10 +400,10 @@ def generate_c_values(node, jval, funcname, name, index):
             if struct.name is None:
                 structname = node.type.declname + index
                 structtype = node.type.declname
-            elif type(node.type.type) is c_ast.Struct:
+            elif type(struct) is c_ast.Struct:
                 structname = struct.name + index
                 structtype = 'struct ' + struct.name
-            elif type(node.type.type) is c_ast.Union:
+            elif type(struct) is c_ast.Union:
                 structname = struct.name + index
                 structtype = 'union ' + struct.name
 
@@ -422,6 +422,9 @@ def generate_c_values(node, jval, funcname, name, index):
 
                 result += JS_GET_PROP.format(NAME=structname, MEM=decl.name,
                                              OBJ=jval, GET_VAl=getval)
+
+                if type(struct) is c_ast.Union:
+                    break
 
             result += C_NATIVE_STRUCT.format(TYPE=structtype, NAME=name,
                                              MEM=(',').join(struct_members))
