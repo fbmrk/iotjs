@@ -17,6 +17,8 @@
 import os
 import sys
 
+import clang.cindex
+
 from pycparser import c_ast, parse_file
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
@@ -302,6 +304,27 @@ class AST_Visitor(c_ast.NodeVisitor):
             self.enumnames.append(node.name)
 
 
+class ClangTranslationUnitVisitor:
+    def __init__(self, header, args):
+        # TODO: Avoid hard-coding paths and args in general.
+        clang.cindex.Config.set_library_file('libclang-5.0.so.1')
+        index = clang.cindex.Index.create()
+        self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
+        self.translation_unit = index.parse(header, args=args.append(self.clang_args))
+        self.enumnames = set()
+
+    def visit(self, cursor=None):
+        if cursor is None:
+            cursor = self.translation_unit.cursor
+
+        if cursor.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
+            self.enumnames.add(cursor.displayname)
+
+        children = list(cursor.get_children())
+        for child in children:
+            self.visit(child)
+
+
 def get_typedefs(ast):
     typedefs = []
 
@@ -577,6 +600,9 @@ def generate_c_source(header, api_headers, dirname):
     visitor = AST_Visitor()
     visitor.visit(ast)
 
+    clang_visitor = ClangTranslationUnitVisitor(header, preproc_args)
+    clang_visitor.visit()
+
     functions = get_functions(ast, api_headers)
     typedefs = get_typedefs(ast)
     params = get_params(functions)
@@ -600,7 +626,10 @@ def generate_c_source(header, api_headers, dirname):
     for function in functions:
         init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for enumname in visitor.enumnames:
+    #for enumname in visitor.enumnames:
+        #init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+
+    for enumname in clang_visitor.enumnames:
         init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
