@@ -17,8 +17,6 @@
 import os
 import sys
 
-import clang.cindex
-
 from pycparser import c_ast, parse_file
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
@@ -362,6 +360,7 @@ def create_c_type_value(c_type, jval, funcname, name):
         get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
 
     elif c_type in C_NUMBER_TYPES:
+        #print c_type
         check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
                                           FUNC=funcname)
         get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
@@ -386,6 +385,37 @@ def create_js_type_value(c_type, name, cval):
 
     return result
 
+
+# TODO: Implement the handling of structs, pointers, arrays etc.
+def clang_generate_c_values(node, jval, funcname, name, index):
+    result = None
+    check_type_str = None
+    get_type = None
+    buffers_to_free = []
+
+    #print 'Node: {}'.format(node.canonical_type_name)
+
+    if node.is_bool():
+        check_type_str = 'boolean'
+        get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
+    elif node.is_number():
+        check_type_str = 'number'
+        get_type = JS_GET_NUM.format(TYPE=node.canonical_type_name, NAME=name, JVAL=jval)
+    elif node.is_char():
+        check_type_str = 'string'
+        get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
+    elif node.is_enum():
+        check_type_str = 'number'
+        get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
+    else:
+        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node.canonical_type_name))
+
+    check_type = JS_CHECK_TYPE.format(TYPE=check_type_str, JVAL=jval, FUNC=funcname)
+
+    result = check_type + get_type
+    return result, buffers_to_free
+
+
 def generate_c_values(node, jval, funcname, name, index):
     result = None
     buffers_to_free = []
@@ -393,8 +423,10 @@ def generate_c_values(node, jval, funcname, name, index):
     if type(node.type) is c_ast.TypeDecl:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
+            #print 'nodetype: {}'.format(nodetype)
             if nodetype != C_VOID_TYPE:
                 result = create_c_type_value(nodetype, jval, funcname, name)
+                #print 'result: {}'.format(result)
 
         elif (type(node.type.type) is c_ast.Struct or
             type(node.type.type) is c_ast.Union):
@@ -461,6 +493,27 @@ def generate_c_values(node, jval, funcname, name, index):
     return result, buffers_to_free
 
 
+def clang_generate_js_value(node, cval, name):
+    nodetype = node.canonical_return_type_name
+    print nodetype
+    result = None
+
+    if node.is_return_type_void():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
+    elif node.is_return_type_bool():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cvale)
+    elif node.is_return_type_number():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+    elif node.is_return_type_char():
+        result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
+    elif node.is_return_type_enum():
+        nodetype = 'int'
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+    else:
+        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(nodetype))
+
+    return nodetype, result
+
 def generate_js_value(node, cval, name):
     nodetype = None
     result = None
@@ -519,6 +572,56 @@ def generate_js_value(node, cval, name):
     return nodetype, result
 
 
+def clang_generate_jerry_functions(functions):
+    for function in functions:
+        funcname = function.name
+        params = function.params
+        jerry_function = []
+        native_params = []
+        buffers_to_free = []
+
+        if params:
+            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=len(params),
+                                                            FUNC=funcname))
+
+            for index, param in enumerate(params):
+                index = str(index)
+                result, buffers = clang_generate_c_values(param,
+                                                    'args_p['+index+']',
+                                                    funcname,
+                                                    'arg_' + index,
+                                                    index)
+
+                if result:
+                    native_params.append('arg_' + index)
+                    buffers_to_free += buffers
+                    comment = JS_ARG_COMMENT.format(INDEX=index)
+                    jerry_function.append(comment + result)
+                else:
+                    jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0, FUNC=funcname)
+
+        native_params = (', ').join(native_params)
+
+        return_type, result = clang_generate_js_value(function, 'result', 'ret_val')
+
+        if return_type == 'void':
+            jerry_function.append(C_NATIVE_CALL.format(RETURN='',
+                                                       RESULT='',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
+        else:
+            jerry_function.append(C_NATIVE_CALL.format(RETURN=return_type,
+                                                       RESULT=' result = ',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
+
+        jerry_function += buffers_to_free
+        jerry_function.append(result)
+
+        yield JS_FUNC_HANDLER.format(NAME=funcname,
+                                     BODY=('\n').join(jerry_function))
+
+
 def generate_jerry_functions(functions):
     for function in functions:
         funcname = function.name
@@ -534,6 +637,7 @@ def generate_jerry_functions(functions):
                                                             FUNC=funcname))
 
             for index, param in enumerate(params):
+                #print 'param: {}'.format(param)
                 index = str(index)
                 result, buffers = generate_c_values(param, 'args_p['+index+']',
                                            funcname, 'arg_' + index, index)
@@ -581,8 +685,12 @@ def generate_c_source(header, api_headers, dirname):
     visitor = AST_Visitor()
     visitor.visit(ast)
 
-    clang_visitor = ClangTranslationUnitVisitor(header, preproc_args)
+    clang_visitor = ClangTranslationUnitVisitor(header, api_headers, preproc_args)
     clang_visitor.visit()
+
+    for decl in clang_visitor.function_decls:
+        pass
+        #print '{} {}'.format(decl.canonical_return_type_name, decl.name)
 
     functions = get_functions(ast, api_headers)
     typedefs = get_typedefs(ast)
@@ -600,13 +708,23 @@ def generate_c_source(header, api_headers, dirname):
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
+    # FIXME: Remove commented out previous solution.
     for jerry_function in generate_jerry_functions(functions):
         generated_source.append(jerry_function)
 
+    for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
+        #continue
+        print jerry_function
+
     init_function = []
-    for function in functions:
+    # FIXME: Remove commented out previous solution.
+    #for function in functions:
+        #init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+
+    for function in clang_visitor.function_decls:
         init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
+    # FIXME: Remove commented out previous solution.
     #for enumname in visitor.enumnames:
         #init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
 
