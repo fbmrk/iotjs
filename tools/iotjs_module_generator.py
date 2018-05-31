@@ -23,6 +23,8 @@ from pycparser import c_ast, parse_file
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
+from clang_translation_unit_visitor import ClangTranslationUnitVisitor
+
 C_VOID_TYPE = 'void'
 
 C_BOOL_TYPE = '_Bool'
@@ -302,27 +304,6 @@ class AST_Visitor(c_ast.NodeVisitor):
     def visit_Enumerator(self, node):
         if not node.name in self.enumnames:
             self.enumnames.append(node.name)
-
-
-class ClangTranslationUnitVisitor:
-    def __init__(self, header, args):
-        # TODO: Avoid hard-coding paths and args in general.
-        clang.cindex.Config.set_library_file('libclang-5.0.so.1')
-        index = clang.cindex.Index.create()
-        self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, args=args.append(self.clang_args))
-        self.enumnames = set()
-
-    def visit(self, cursor=None):
-        if cursor is None:
-            cursor = self.translation_unit.cursor
-
-        if cursor.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
-            self.enumnames.add(cursor.displayname)
-
-        children = list(cursor.get_children())
-        for child in children:
-            self.visit(child)
 
 
 def get_typedefs(ast):
@@ -629,8 +610,8 @@ def generate_c_source(header, api_headers, dirname):
     #for enumname in visitor.enumnames:
         #init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
 
-    for enumname in clang_visitor.enumnames:
-        init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+    for decl in clang_visitor.enum_constant_decls:
+        init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))
