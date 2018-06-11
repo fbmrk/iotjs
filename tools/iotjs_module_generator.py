@@ -386,29 +386,61 @@ def create_js_type_value(c_type, name, cval):
     return result
 
 
-# TODO: Implement the handling of structs, pointers, arrays etc.
+# TODO: Implement the handling of structs and unions.
 def clang_generate_c_values(node, jval, funcname, name, index):
     result = None
     check_type_str = None
     get_type = None
     buffers_to_free = []
 
-    #print 'Node: {}'.format(node.canonical_type_name)
+    node_type = node.node_type
 
-    if node.is_bool():
+    if node_type.is_pointer() or node_type.is_array():
+        #print 'Pointee type: {}'.format(node_type.get_pointee_type().type_name)
+        if node_type.is_pointer():
+            pointee_type = node_type.get_pointee_type()
+        else:
+            # Array
+            pointee_type = node_type.get_array_type()
+
+        if pointee_type.is_char():
+            check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval, FUNC=funcname)
+            get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
+            result = check_type + get_type
+
+        elif pointee_type.is_number():
+            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray',
+                                               TYPE2='null',
+                                               JVAL=jval,
+                                               FUNC=funcname)
+
+            get_type = JS_GET_POINTER.format(TYPE=pointee_type.type_name, NAME=name, JVAL=jval)
+
+            result = check_type + get_type
+
+            buffers_to_free.append(JS_FREE_POINTER.format(NAME=name, JVAL=jval))
+        else:
+            raise NotImplementedError('Unhandled pointer/array type: \'{}\' .'.format(node_type.type_name))
+
+        return result, buffers_to_free
+
+
+    elif node_type.is_bool():
         check_type_str = 'boolean'
         get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
-    elif node.is_number():
+    elif node_type.is_number():
         check_type_str = 'number'
-        get_type = JS_GET_NUM.format(TYPE=node.canonical_type_name, NAME=name, JVAL=jval)
-    elif node.is_char():
+        get_type = JS_GET_NUM.format(TYPE=node_type.type_name, NAME=name, JVAL=jval)
+    elif node_type.is_char():
         check_type_str = 'string'
         get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
-    elif node.is_enum():
+    elif node_type.is_enum():
         check_type_str = 'number'
         get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
+
     else:
-        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node.canonical_type_name))
+        print '{}'.format(node_type._canonical_type.kind)
+        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node_type.type_name))
 
     check_type = JS_CHECK_TYPE.format(TYPE=check_type_str, JVAL=jval, FUNC=funcname)
 
@@ -494,25 +526,46 @@ def generate_c_values(node, jval, funcname, name, index):
 
 
 def clang_generate_js_value(node, cval, name):
-    nodetype = node.canonical_return_type_name
-    print nodetype
+    node_type = node.node_type
+    return_type = node.return_type
+    return_type_name = return_type.type_name
+    node_type_name = node_type.type_name
     result = None
 
-    if node.is_return_type_void():
+    if return_type.is_pointer():
+        pointee_type = return_type.get_pointee_type()
+        pointee_type_name = pointee_type.type_name
+        return_type_name = pointee_type_name + '*'
+
+        if pointee_type.is_char():
+            result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
+        elif pointee_type.is_number():
+            array_type = C_NUMBER_TYPES[pointee_type_name]
+            result = JS_CREATE_BUFFER.format(NAME=name,
+                                             FROM=cval,
+                                             TYPE=pointee_type_name,
+                                             ARRAY_TYPE=array_type)
+        else:
+             raise NotImplementedError(
+                       'Unhandled pointer type: \'{}\' .'.format(return_type.type_name))
+
+        return return_type_name, result
+
+    elif return_type.is_void():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
-    elif node.is_return_type_bool():
+    elif return_type.is_bool():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cvale)
-    elif node.is_return_type_number():
+    elif return_type.is_number():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
-    elif node.is_return_type_char():
+    elif return_type.is_char():
         result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
-    elif node.is_return_type_enum():
-        nodetype = 'int'
+    elif return_type.is_enum():
+        return_type_name = 'int'
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
     else:
-        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(nodetype))
+        raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(return_type.type_name))
 
-    return nodetype, result
+    return return_type_name, result
 
 def generate_js_value(node, cval, name):
     nodetype = None
