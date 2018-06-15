@@ -385,7 +385,6 @@ def create_js_type_value(c_type, name, cval):
     return result
 
 
-# TODO: Implement the handling of structs and unions.
 def clang_generate_c_values(node, jval, funcname, name, index):
     result = None
     check_type_str = None
@@ -393,8 +392,57 @@ def clang_generate_c_values(node, jval, funcname, name, index):
     buffers_to_free = []
 
     node_type = node.node_type
+    node_declaration = node_type.get_declaration()
+    node_declaration_kind = node_declaration.node_kind
 
-    if node_type.is_pointer() or node_type.is_array():
+    if node_declaration_kind.is_struct_decl() or node_declaration_kind.is_union_decl():
+        struct_members = []
+        struct_decl = node_declaration.get_as_struct_or_union_decl()
+        struct_name = struct_decl.name
+
+	if struct_name == '':
+            struct_name = struct_decl.node_type.type_name + index
+            struct_type = struct_decl.node_type.type_name
+        elif node_declaration_kind.is_struct_decl():
+            struct_type = 'struct ' + struct_name
+            struct_name += index
+        elif node_declaration_kind.is_union_decl():
+            struct_type = 'union ' + struct_name
+            struct_name += index
+
+
+        result = JS_CHECK_TYPE.format(TYPE='object',
+                                      JVAL=jval,
+                                      FUNC=funcname)
+
+        for field in struct_decl.field_decls:
+            member_name = struct_name + '_' + field.name
+            member_val = member_name + '_value'
+            struct_members.append(member_name)
+
+            getval, buffers = clang_generate_c_values(field,
+                                                      member_val,
+                                                      funcname,
+                                                      member_name,
+                                                      index)
+
+            buffers_to_free += buffers
+
+            result += JS_GET_PROP.format(NAME=struct_name,
+                                         MEM=field.name,
+                                         OBJ=jval,
+                                         GET_VAl=getval)
+
+            if node_declaration_kind.is_union_decl():
+                break
+
+        result += C_NATIVE_STRUCT.format(TYPE=struct_type,
+                                         NAME=name,
+                                         MEM=(',').join(struct_members))
+
+        return result, buffers_to_free
+
+    elif node_type.is_pointer() or node_type.is_array():
         if node_type.is_pointer():
             pointee_type = node_type.get_pointee_type()
         else:
@@ -521,16 +569,49 @@ def generate_c_values(node, jval, funcname, name, index):
 
 
 def clang_generate_js_value(node, cval, name):
-    node_type = node.node_type
-    return_type = node.return_type
-    return_type_name = return_type.type_name
+    if node.node_kind.is_function_decl():
+        node_type = node.return_type
+    else:
+        node_type = node.node_type
+
     node_type_name = node_type.type_name
+
     result = None
 
-    if return_type.is_pointer():
+    node_type_declaration = node_type.get_declaration()
+    node_type_declaration_kind = node_type_declaration.node_kind
+
+    if node_type_declaration_kind.is_struct_decl() or node_type_declaration_kind.is_union_decl():
+        struct_decl = node_type_declaration.get_as_struct_or_union_decl()
+        struct_name = struct_decl.name
+
+	if struct_name == '':
+            struct_name = struct_decl.node_type.type_name
+            struct_type = struct_decl.node_type.type_name
+        elif node_type_declaration_kind.is_struct_decl():
+            struct_type = 'struct ' + struct_name
+        elif node_type_declaration_kind.is_union_decl():
+            struct_type = 'union ' + struct_name
+
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='object', FROM='')
+
+        for field in struct_decl.field_decls:
+            member = cval + '.' + field.name
+            member_js = 'js_' + struct_name + '_' + field.name
+            mem_type, mem_val = clang_generate_js_value(field, member, member_js)
+            result += mem_val
+
+            result += JS_SET_PROP.format(NAME=struct_name,
+                                         MEM=field.name,
+                                         OBJ=name,
+                                         JVAL=member_js)
+
+        return struct_type, result
+
+    elif node_type.is_pointer():
         pointee_type = return_type.get_pointee_type()
         pointee_type_name = pointee_type.type_name
-        return_type_name = pointee_type_name + '*'
+        node_type_name = pointee_type_name + '*'
 
         if pointee_type.is_char():
             result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
@@ -544,23 +625,23 @@ def clang_generate_js_value(node, cval, name):
              raise NotImplementedError(
                        'Unhandled pointer type: \'{}\' .'.format(return_type.type_name))
 
-        return return_type_name, result
+        return node_type_name, result
 
-    elif return_type.is_void():
+    elif node_type.is_void():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
-    elif return_type.is_bool():
+    elif node_type.is_bool():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cvale)
-    elif return_type.is_number():
+    elif node_type.is_number():
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
-    elif return_type.is_char():
+    elif node_type.is_char():
         result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
-    elif return_type.is_enum():
-        return_type_name = 'int'
+    elif node_type.is_enum():
+        node_type_name = 'int'
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
     else:
         raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(return_type.type_name))
 
-    return return_type_name, result
+    return node_type_name, result
 
 def generate_js_value(node, cval, name):
     nodetype = None
