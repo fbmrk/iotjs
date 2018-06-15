@@ -160,7 +160,7 @@ class ClangTranslationUnitVisitor:
             decl = ClangEnumConstantDecl(cursor)
             self.enum_constant_decls.append(decl)
 
-        if (cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL and
+        elif (cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL and
             cursor.location.file != None and
             cursor.location.file.name in self.api_headers):
             self.function_decls.append(ClangFunctionDecl(cursor))
