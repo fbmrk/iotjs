@@ -360,7 +360,6 @@ def create_c_type_value(c_type, jval, funcname, name):
         get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
 
     elif c_type in C_NUMBER_TYPES:
-        #print c_type
         check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
                                           FUNC=funcname)
         get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
@@ -396,7 +395,6 @@ def clang_generate_c_values(node, jval, funcname, name, index):
     node_type = node.node_type
 
     if node_type.is_pointer() or node_type.is_array():
-        #print 'Pointee type: {}'.format(node_type.get_pointee_type().type_name)
         if node_type.is_pointer():
             pointee_type = node_type.get_pointee_type()
         else:
@@ -439,7 +437,6 @@ def clang_generate_c_values(node, jval, funcname, name, index):
         get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
 
     else:
-        print '{}'.format(node_type._canonical_type.kind)
         raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node_type.type_name))
 
     check_type = JS_CHECK_TYPE.format(TYPE=check_type_str, JVAL=jval, FUNC=funcname)
@@ -455,10 +452,8 @@ def generate_c_values(node, jval, funcname, name, index):
     if type(node.type) is c_ast.TypeDecl:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
-            #print 'nodetype: {}'.format(nodetype)
             if nodetype != C_VOID_TYPE:
                 result = create_c_type_value(nodetype, jval, funcname, name)
-                #print 'result: {}'.format(result)
 
         elif (type(node.type.type) is c_ast.Struct or
             type(node.type.type) is c_ast.Union):
@@ -690,7 +685,6 @@ def generate_jerry_functions(functions):
                                                             FUNC=funcname))
 
             for index, param in enumerate(params):
-                #print 'param: {}'.format(param)
                 index = str(index)
                 result, buffers = generate_c_values(param, 'args_p['+index+']',
                                            funcname, 'arg_' + index, index)
@@ -741,10 +735,6 @@ def generate_c_source(header, api_headers, dirname):
     clang_visitor = ClangTranslationUnitVisitor(header, api_headers, preproc_args)
     clang_visitor.visit()
 
-    for decl in clang_visitor.function_decls:
-        pass
-        #print '{} {}'.format(decl.canonical_return_type_name, decl.name)
-
     functions = get_functions(ast, api_headers)
     typedefs = get_typedefs(ast)
     params = get_params(functions)
@@ -761,28 +751,28 @@ def generate_c_source(header, api_headers, dirname):
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
-    # FIXME: Remove commented out previous solution.
-    for jerry_function in generate_jerry_functions(functions):
-        generated_source.append(jerry_function)
-
-    for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
-        #continue
-        print jerry_function
-
     init_function = []
-    # FIXME: Remove commented out previous solution.
-    #for function in functions:
-        #init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for function in clang_visitor.function_decls:
-        init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+    if args.libclang:
+        for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
+            generated_source.append(jerry_function)
 
-    # FIXME: Remove commented out previous solution.
-    #for enumname in visitor.enumnames:
-        #init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+        for function in clang_visitor.function_decls:
+            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for decl in clang_visitor.enum_constant_decls:
-        init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
+        for decl in clang_visitor.enum_constant_decls:
+            init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
+
+    else:
+        for jerry_function in generate_jerry_functions(functions):
+            generated_source.append(jerry_function)
+
+        for function in functions:
+            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+
+        for enumname in visitor.enumnames:
+            init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))
@@ -863,6 +853,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('directory',
                         help='Root directory of c api headers.')
+
+    parser.add_argument('--libclang',
+                        help='use libclang instead of pycparser',
+                        action='store_true')
 
     args = parser.parse_args()
 
