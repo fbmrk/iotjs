@@ -111,13 +111,39 @@ MACROS = '''
     jerry_release_value(ENUM##_enum); \\
     jerry_release_value(ENUM##_ret); \\
   } while (0)
+
+#define REGIST_VALUE(OBJECT, NAME, GETTER) \\
+  do { \\
+    jerry_property_descriptor_t NAME##_prop_desc; \\
+    jerry_init_property_descriptor_fields (&NAME##_prop_desc); \\
+    NAME##_prop_desc.is_get_defined = true; \\
+    NAME##_prop_desc.getter = jerry_create_external_function(GETTER); \\
+    jerry_value_t NAME##_prop_name = jerry_create_string ((const jerry_char_t *)#NAME); \\
+    jerry_value_t NAME##_return_value = jerry_define_own_property (OBJECT, NAME##_prop_name, &NAME##_prop_desc); \\
+    jerry_release_value (NAME##_return_value); \\
+    jerry_release_value (NAME##_prop_name); \\
+    jerry_free_property_descriptor_fields (&NAME##_prop_desc); \\
+  } while (0)
+
+#define REGIST_CONST(OBJECT, NAME, VALUE) \\
+  do { \\
+    jerry_property_descriptor_t NAME##_prop_desc; \\
+    jerry_init_property_descriptor_fields (&NAME##_prop_desc); \\
+    NAME##_prop_desc.is_value_defined = true; \\
+    NAME##_prop_desc.value = VALUE; \\
+    jerry_value_t NAME##_prop_name = jerry_create_string ((const jerry_char_t *)#NAME); \\
+    jerry_value_t NAME##_return_value = jerry_define_own_property (OBJECT, NAME##_prop_name, &NAME##_prop_desc); \\
+    jerry_release_value (NAME##_return_value); \\
+    jerry_release_value (NAME##_prop_name); \\
+    jerry_free_property_descriptor_fields (&NAME##_prop_desc); \\
+  } while (0)
 '''
 
-JS_FUNC_HANDLER = '''
-jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
-                              const jerry_value_t this_val,
-                              const jerry_value_t args_p[],
-                              const jerry_length_t args_cnt)
+JS_FUNC = '''
+jerry_value_t {NAME} (const jerry_value_t function_obj,
+                      const jerry_value_t this_val,
+                      const jerry_value_t args_p[],
+                      const jerry_length_t args_cnt)
 {{
 {BODY}
   return ret_val;
@@ -147,7 +173,7 @@ JS_GET_NUM = '''
 '''
 
 JS_GET_BOOL = '''
-  bool {NAME} = jerry_get_boolean_value ({JVAL});
+  _Bool {NAME} = jerry_value_to_boolean ({JVAL});
 '''
 
 JS_GET_CHAR = '''
@@ -196,7 +222,7 @@ JS_CREATE_BUFFER = '''
     jerry_length_t {NAME}_byteLength = sizeof({TYPE});
     jerry_value_t {NAME}_buffer = jerry_create_arraybuffer({NAME}_byteLength);
     jerry_arraybuffer_write({NAME}_buffer, 0, (uint8_t*){FROM}, {NAME}_byteLength);
-    {NAME} = jerry_create_typedarray_for_arraybuffer (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer);
+    {NAME} = jerry_create_typedarray_for_arraybuffer_sz (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer, 0, 1);
     jerry_release_value({NAME}_buffer);
   }}
   else
@@ -209,16 +235,12 @@ C_NATIVE_CALL = '''
   {RETURN}{RESULT}{NATIVE}({PARAM});
 '''
 
-C_NATIVE_STRUCT = '''
-  {TYPE} {NAME} = {{{MEM}}};
-'''
-
 JS_CREATE_VAL = '''
   jerry_value_t {NAME} = jerry_create_{TYPE}({FROM});
 '''
 
 JS_CREATE_CHAR = '''
-  jerry_value_t {NAME} = jerry_create_string_sz((jerry_char_t*)(&{FROM}), 1);
+  jerry_value_t {NAME} = jerry_create_string_sz((jerry_char_t*)(&({FROM})), 1);
 '''
 
 JS_CREATE_STRING = '''
@@ -229,7 +251,12 @@ JS_GET_PROP = '''
   jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
   jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
   jerry_release_value({NAME}_{MEM}_name);
-  {GET_VAl}
+
+  if(!jerry_value_is_undefined({NAME}_{MEM}_value))
+  {{
+    {GET_VAl}
+    {STRUCT}.{MEM} = {NAME}_{MEM};
+  }}
   jerry_release_value({NAME}_{MEM}_value);
 '''
 
@@ -254,6 +281,12 @@ INIT_REGIST_FUNC = '''  REGIST_FUNCTION(object, {NAME}, {NAME}_handler);
 '''
 
 INIT_REGIST_ENUM = '''  REGIST_ENUM(object, {ENUM});
+'''
+
+INIT_REGIST_VALUE = '''  REGIST_VALUE(object, {NAME}, {NAME}_getter);
+'''
+
+INIT_REGIST_CONST = '''  REGIST_CONST(object, {NAME}, {NAME}_js);
 '''
 
 MODULES_JSON = '''
@@ -312,16 +345,19 @@ def get_typedefs(ast):
     return typedefs
 
 
-def get_functions(ast, api_headers):
+def get_functions_and_decls(ast, api_headers):
     funcs = []
+    decls = []
 
     for decl in ast.ext:
         if (type(decl) is c_ast.Decl and
-            type(decl.type) is c_ast.FuncDecl and
             decl.coord.file in api_headers):
-            funcs.append(decl)
+            if type(decl.type) is c_ast.FuncDecl:
+                funcs.append(decl)
+            elif decl.name:
+                decls.append(decl)
 
-    return funcs
+    return funcs, decls
 
 
 def get_params(functions):
@@ -351,50 +387,96 @@ def resolve_typedefs(firstlist, secondlist):
                 parent.type = first.type
 
 
-def create_c_type_value(c_type, jval, funcname, name):
+def create_c_type_value(c_type, jval, funcname, name, is_pointer):
     if c_type == C_BOOL_TYPE:
-        check_type = JS_CHECK_TYPE.format(TYPE='boolean', JVAL=jval,
-                                          FUNC=funcname)
-        get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
+        if is_pointer:
+            sys.exit('Not supported type: (_Bool *)')
+
+        return JS_GET_BOOL.format(NAME=name, JVAL=jval)
 
     elif c_type in C_NUMBER_TYPES:
-        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
-                                          FUNC=funcname)
-        get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
+        if is_pointer:
+            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
+                                               JVAL=jval, FUNC=funcname)
+            get_type = JS_GET_POINTER.format(TYPE=c_type, NAME=name, JVAL=jval)
+        else:
+            check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
+                                              FUNC=funcname)
+            get_type = JS_GET_NUM.format(TYPE=c_type, NAME=name, JVAL=jval)
 
     elif c_type == C_CHAR_TYPES:
-        check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
-                                          FUNC=funcname)
-        get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
+        if is_pointer:
+            check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+                                              FUNC=funcname)
+            get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
+        else:
+            check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+                                              FUNC=funcname)
+            get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
 
     return check_type + get_type
 
 
-def create_js_type_value(c_type, name, cval):
+def create_js_type_value(c_type, name, cval, is_pointer):
     if c_type == C_VOID_TYPE:
+        if is_pointer:
+            sys.exit('Not supported type: (void *)')
+
         result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
+
     elif c_type == C_BOOL_TYPE:
+        if is_pointer:
+            sys.exit('Not supported type: (_Bool *)')
+
         result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cval)
+
     elif c_type in C_NUMBER_TYPES:
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+        if is_pointer:
+            array_type = C_NUMBER_TYPES[c_type]
+            result = JS_CREATE_BUFFER.format(NAME=name, FROM=cval, TYPE=c_type,
+                                             ARRAY_TYPE=array_type)
+
+        else:
+            result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+
     elif c_type == C_CHAR_TYPES:
-        result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
+        if is_pointer:
+            result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
+
+        else:
+            result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
 
     return result
 
-def generate_c_values(node, jval, funcname, name, index):
-    result = None
+def generate_c_values(node, jval, funcname, name, index='0'):
+    result = ''
     buffers_to_free = []
+    is_pointer = False
 
-    if type(node.type) is c_ast.TypeDecl:
+    if (type(node.type) is c_ast.PtrDecl or
+        type(node.type) is c_ast.ArrayDecl):
+        is_pointer = True
+        node = node.type
+
+    if type(node.type) is not c_ast.TypeDecl:
+        sys.exit('Not supported type: {}'.format(node.coord))
+    else:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
             if nodetype != C_VOID_TYPE:
-                result = create_c_type_value(nodetype, jval, funcname, name)
+                result = create_c_type_value(nodetype, jval, funcname, name, is_pointer)
+                if is_pointer and nodetype in C_NUMBER_TYPES:
+                    buffers_to_free.append(JS_FREE_POINTER.format(NAME=name,
+                                                                  JVAL=jval))
+            elif  is_pointer:
+                sys.exit('Not supported type: (void *)')
 
         elif (type(node.type.type) is c_ast.Struct or
             type(node.type.type) is c_ast.Union):
-            struct_members = []
+
+            if is_pointer:
+                sys.exit('Not supported type: {}'.format(node.coord))
+
             struct = node.type.type
 
             if struct.name is None:
@@ -410,10 +492,11 @@ def generate_c_values(node, jval, funcname, name, index):
             result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval,
                                           FUNC=funcname)
 
+            result += "  {TYPE} {NAME};".format(TYPE=structtype, NAME=name)
+
             for decl in struct:
                 member_name = structname + '_' + decl.name
                 member_val = member_name + '_value'
-                struct_members.append(member_name)
 
                 getval, buffers = generate_c_values(decl, member_val, funcname,
                                                     member_name, index)
@@ -421,55 +504,42 @@ def generate_c_values(node, jval, funcname, name, index):
                 buffers_to_free += buffers
 
                 result += JS_GET_PROP.format(NAME=structname, MEM=decl.name,
-                                             OBJ=jval, GET_VAl=getval)
+                                             OBJ=jval, GET_VAl=getval, STRUCT=name)
 
                 if type(struct) is c_ast.Union:
                     break
 
-            result += C_NATIVE_STRUCT.format(TYPE=structtype, NAME=name,
-                                             MEM=(',').join(struct_members))
-
         elif type(node.type.type) is c_ast.Enum:
-            result = create_c_type_value('int', jval, funcname, name)
+            result = create_c_type_value('int', jval, funcname, name, is_pointer)
 
-    elif (type(node.type) is c_ast.PtrDecl or
-          type(node.type) is c_ast.ArrayDecl):
-        if (type(node.type.type) is c_ast.TypeDecl and
-        type(node.type.type.type) is c_ast.IdentifierType):
-            nodetype = (' ').join(node.type.type.type.names)
-            if nodetype == C_CHAR_TYPES:
-                check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
-                                                  FUNC=funcname)
-                get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
-                result = check_type + get_type
-
-            elif nodetype in C_NUMBER_TYPES:
-                check_type = JS_CHECK_TYPES.format(TYPE1='typedarray',
-                                                   TYPE2='null', JVAL=jval,
-                                                   FUNC=funcname)
-                get_type = JS_GET_POINTER.format(TYPE=nodetype, NAME=name,
-                                                 JVAL=jval)
-                result = check_type + get_type
-
-                buffers_to_free.append(JS_FREE_POINTER.format(NAME=name,
-                                                              JVAL=jval))
+        else:
+            sys.exit('Not supported type: {}'.format(node.coord))
 
     return result, buffers_to_free
 
 
 def generate_js_value(node, cval, name):
-    nodetype = None
-    result = None
+    nodetype = ''
+    result = ''
+    is_pointer = False
 
-    if type(node.type) is c_ast.TypeDecl:
+    if type(node.type) is c_ast.PtrDecl:
+        is_pointer = True
+        node = node.type
+
+    if type(node.type) is not c_ast.TypeDecl:
+        sys.exit('Not supported type: {}'.format(node.coord))
+    else:
         if type(node.type.type) is c_ast.IdentifierType:
             nodetype = (' ').join(node.type.type.names)
-            result = create_js_type_value(nodetype, name, cval)
-
-            return nodetype, result
+            result = create_js_type_value(nodetype, name, cval, is_pointer)
 
         elif (type(node.type.type) is c_ast.Struct or
             type(node.type.type) is c_ast.Union):
+
+            if is_pointer:
+                sys.exit('Not supported type: {}'.format(node.coord))
+
             struct = node.type.type
 
             if struct.name is None:
@@ -495,22 +565,13 @@ def generate_js_value(node, cval, name):
 
         elif type(node.type.type) is c_ast.Enum:
             nodetype = 'int'
-            result = create_js_type_value(nodetype, name, cval)
+            result = create_js_type_value(nodetype, name, cval, is_pointer)
 
-    elif type(node.type) is c_ast.PtrDecl:
-        if (type(node.type.type) is c_ast.TypeDecl and
-        type(node.type.type.type) is c_ast.IdentifierType):
-            nodetype = (' ').join(node.type.type.type.names)
-            if nodetype == C_CHAR_TYPES:
-                result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
-                nodetype += '*'
+        else:
+            sys.exit('Not supported type: {}'.format(node.coord))
 
-            elif nodetype in C_NUMBER_TYPES:
-                array_type = C_NUMBER_TYPES[nodetype]
-                result = JS_CREATE_BUFFER.format(NAME=name, FROM=cval,
-                                                 TYPE=nodetype,
-                                                 ARRAY_TYPE=array_type)
-                nodetype += '*'
+    if is_pointer:
+        nodetype += '*'
 
     return nodetype, result
 
@@ -541,6 +602,9 @@ def generate_jerry_functions(functions):
                 else:
                     jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0,
                                                                   FUNC=funcname)
+        else:
+            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=0,
+                                                            FUNC=funcname))
 
         native_params = (', ').join(native_params)
 
@@ -560,8 +624,8 @@ def generate_jerry_functions(functions):
         jerry_function += buffers_to_free
         jerry_function.append(result)
 
-        yield JS_FUNC_HANDLER.format(NAME=funcname,
-                                     BODY=('\n').join(jerry_function))
+        yield JS_FUNC.format(NAME=funcname + '_handler',
+                             BODY=('\n').join(jerry_function))
 
 
 def generate_c_source(header, api_headers, dirname):
@@ -577,13 +641,14 @@ def generate_c_source(header, api_headers, dirname):
     visitor = AST_Visitor()
     visitor.visit(ast)
 
-    functions = get_functions(ast, api_headers)
+    functions, decls = get_functions_and_decls(ast, api_headers)
     typedefs = get_typedefs(ast)
     params = get_params(functions)
 
     resolve_typedefs(typedefs, typedefs)
     resolve_typedefs(typedefs, functions)
     resolve_typedefs(typedefs, params)
+    resolve_typedefs(typedefs, decls)
 
     for structdef in visitor.structdefs:
         resolve_typedefs(typedefs, structdef.decls)
@@ -602,6 +667,18 @@ def generate_c_source(header, api_headers, dirname):
 
     for enumname in visitor.enumnames:
         init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+
+    for decl in decls:
+        name = decl.name
+        if 'const' in decl.quals:
+            type, result = generate_js_value(decl, name, name + '_js')
+            init_function.append(result)
+            init_function.append(INIT_REGIST_CONST.format(NAME=name))
+        else:
+            type, result = generate_js_value(decl, name, 'ret_val')
+            generated_source.append(JS_FUNC.format(NAME=name + '_getter',
+                                                   BODY=result))
+            init_function.append(INIT_REGIST_VALUE.format(NAME=name))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))
