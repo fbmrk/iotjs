@@ -5,6 +5,9 @@
 import clang.cindex
 
 
+# This class is a wrapper for the CursorKind type in the libclang python-bindings.
+# See the definition here:
+# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L640
 class ClangASTNodeKind:
     def __init__(self, cursor_kind):
         self._cursor_kind = cursor_kind
@@ -19,6 +22,10 @@ class ClangASTNodeKind:
         return self._cursor_kind == clang.cindex.CursorKind.FUNCTION_DECL
 
 
+# This class is a wrapper for the TypeKind and Type classes in the libclang python-bindings.
+# See the definitions here:
+# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L1936
+# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L2064
 class ClangASTNodeType:
     char_type_kinds = [
         clang.cindex.TypeKind.CHAR_U,
@@ -112,6 +119,9 @@ class ClangASTNodeType:
         return ClangASTNode(decl)
 
 
+# This class is a wrapper for the Cursor type in the libclang python-bindings.
+# See the definition here:
+# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L1394
 class ClangASTNode:
     def __init__(self, cursor):
         self._cursor = cursor
@@ -136,11 +146,13 @@ class ClangASTNode:
         return ClangStructOrUnionDecl(self._cursor)
 
 
+# This class represents enum declarations in libclang.
 class ClangEnumConstantDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
 
 
+# This class represents function declarations in libclang.
 class ClangFunctionDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
@@ -161,11 +173,13 @@ class ClangFunctionDecl(ClangASTNode):
         return self._parm_decls
 
 
+# This class represents function parameter declarations in libclang.
 class ClangFunctionParameterDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
 
 
+# This class represents funcion/union declarations in libclang.
 class ClangStructOrUnionDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
@@ -182,16 +196,20 @@ class ClangStructOrUnionDecl(ClangASTNode):
 
 
 
+# This class represents funcion/union/class field declarations in libclang.
 class ClangFieldDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
 
 
+# This class responsible for initializing and visiting the AST provided by libclang.
 class ClangTranslationUnitVisitor:
     def __init__(self, header, api_headers, args):
         # TODO: Avoid hard-coding paths and args in general.
         clang.cindex.Config.set_library_file('libclang-5.0.so.1')
         index = clang.cindex.Index.create()
+
+        # TODO: C++ needs a different configuration (-x C++).
         self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
         self.translation_unit = index.parse(header, args=args.append(self.clang_args))
 
