@@ -609,7 +609,7 @@ def clang_generate_js_value(node, cval, name):
         return struct_type, result
 
     elif node_type.is_pointer():
-        pointee_type = return_type.get_pointee_type()
+        pointee_type = node_type.get_pointee_type()
         pointee_type_name = pointee_type.type_name
         node_type_name = pointee_type_name + '*'
 
@@ -623,7 +623,7 @@ def clang_generate_js_value(node, cval, name):
                                              ARRAY_TYPE=array_type)
         else:
              raise NotImplementedError(
-                       'Unhandled pointer type: \'{}\' .'.format(return_type.type_name))
+                       'Unhandled pointer type: \'{}\' .'.format(node_type.type_name))
 
         return node_type_name, result
 
@@ -639,7 +639,7 @@ def clang_generate_js_value(node, cval, name):
         node_type_name = 'int'
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
     else:
-        raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(return_type.type_name))
+        raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(node_type.type_name))
 
     return node_type_name, result
 
