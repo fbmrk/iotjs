@@ -21,6 +21,8 @@ from pycparser import c_ast, parse_file
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
+from clang_translation_unit_visitor import ClangTranslationUnitVisitor
+
 C_VOID_TYPE = 'void'
 
 C_BOOL_TYPE = '_Bool'
@@ -448,6 +450,115 @@ def create_js_type_value(c_type, name, cval, is_pointer):
 
     return result
 
+
+def clang_generate_c_values(node, jval, funcname, name, index):
+    result = None
+    check_type_str = None
+    get_type = None
+    buffers_to_free = []
+
+    node_type = node.node_type
+    node_declaration = node_type.get_declaration()
+    node_declaration_kind = node_declaration.node_kind
+
+    if node_declaration_kind.is_struct_decl() or node_declaration_kind.is_union_decl():
+        struct_members = []
+        struct_decl = node_declaration.get_as_struct_or_union_decl()
+        struct_name = struct_decl.name
+
+	if struct_name == '':
+            struct_name = struct_decl.node_type.type_name + index
+            struct_type = struct_decl.node_type.type_name
+        elif node_declaration_kind.is_struct_decl():
+            struct_type = 'struct ' + struct_name
+            struct_name += index
+        elif node_declaration_kind.is_union_decl():
+            struct_type = 'union ' + struct_name
+            struct_name += index
+
+
+        result = JS_CHECK_TYPE.format(TYPE='object',
+                                      JVAL=jval,
+                                      FUNC=funcname)
+
+        for field in struct_decl.field_decls:
+            member_name = struct_name + '_' + field.name
+            member_val = member_name + '_value'
+            struct_members.append(member_name)
+
+            getval, buffers = clang_generate_c_values(field,
+                                                      member_val,
+                                                      funcname,
+                                                      member_name,
+                                                      index)
+
+            buffers_to_free += buffers
+
+            result += JS_GET_PROP.format(NAME=struct_name,
+                                         MEM=field.name,
+                                         OBJ=jval,
+                                         GET_VAl=getval)
+
+            if node_declaration_kind.is_union_decl():
+                break
+
+        result += C_NATIVE_STRUCT.format(TYPE=struct_type,
+                                         NAME=name,
+                                         MEM=(',').join(struct_members))
+
+        return result, buffers_to_free
+
+    elif node_type.is_pointer() or node_type.is_array():
+        if node_type.is_pointer():
+            pointee_type = node_type.get_pointee_type()
+        else:
+            # Array
+            pointee_type = node_type.get_array_type()
+
+        if pointee_type.is_char():
+            check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval, FUNC=funcname)
+            get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
+            result = check_type + get_type
+
+        elif pointee_type.is_number():
+            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray',
+                                               TYPE2='null',
+                                               JVAL=jval,
+                                               FUNC=funcname)
+
+            get_type = JS_GET_POINTER.format(TYPE=pointee_type.type_name, NAME=name, JVAL=jval)
+
+            result = check_type + get_type
+
+            buffers_to_free.append(JS_FREE_POINTER.format(NAME=name, JVAL=jval))
+        else:
+            raise NotImplementedError('Unhandled pointer/array type: \'{}\' .'.format(node_type.type_name))
+
+        return result, buffers_to_free
+
+
+    elif node_type.is_bool():
+        check_type_str = 'boolean'
+        get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
+    elif node_type.is_number():
+        check_type_str = 'number'
+        get_type = JS_GET_NUM.format(TYPE=node_type.type_name, NAME=name, JVAL=jval)
+    elif node_type.is_char():
+        check_type_str = 'string'
+        get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
+    elif node_type.is_enum():
+        check_type_str = 'number'
+        get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
+
+    else:
+        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node_type.type_name))
+
+    check_type = JS_CHECK_TYPE.format(TYPE=check_type_str, JVAL=jval, FUNC=funcname)
+
+    result = check_type + get_type
+    return result, buffers_to_free
+
+
 def generate_c_values(node, jval, funcname, name, index='0'):
     result = ''
     buffers_to_free = []
@@ -518,6 +629,81 @@ def generate_c_values(node, jval, funcname, name, index='0'):
     return result, buffers_to_free
 
 
+def clang_generate_js_value(node, cval, name):
+    if node.node_kind.is_function_decl():
+        node_type = node.return_type
+    else:
+        node_type = node.node_type
+
+    node_type_name = node_type.type_name
+
+    result = None
+
+    node_type_declaration = node_type.get_declaration()
+    node_type_declaration_kind = node_type_declaration.node_kind
+
+    if node_type_declaration_kind.is_struct_decl() or node_type_declaration_kind.is_union_decl():
+        struct_decl = node_type_declaration.get_as_struct_or_union_decl()
+        struct_name = struct_decl.name
+
+	if struct_name == '':
+            struct_name = struct_decl.node_type.type_name
+            struct_type = struct_decl.node_type.type_name
+        elif node_type_declaration_kind.is_struct_decl():
+            struct_type = 'struct ' + struct_name
+        elif node_type_declaration_kind.is_union_decl():
+            struct_type = 'union ' + struct_name
+
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='object', FROM='')
+
+        for field in struct_decl.field_decls:
+            member = cval + '.' + field.name
+            member_js = 'js_' + struct_name + '_' + field.name
+            mem_type, mem_val = clang_generate_js_value(field, member, member_js)
+            result += mem_val
+
+            result += JS_SET_PROP.format(NAME=struct_name,
+                                         MEM=field.name,
+                                         OBJ=name,
+                                         JVAL=member_js)
+
+        return struct_type, result
+
+    elif node_type.is_pointer():
+        pointee_type = node_type.get_pointee_type()
+        pointee_type_name = pointee_type.type_name
+        node_type_name = pointee_type_name + '*'
+
+        if pointee_type.is_char():
+            result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
+        elif pointee_type.is_number():
+            array_type = C_NUMBER_TYPES[pointee_type_name]
+            result = JS_CREATE_BUFFER.format(NAME=name,
+                                             FROM=cval,
+                                             TYPE=pointee_type_name,
+                                             ARRAY_TYPE=array_type)
+        else:
+             raise NotImplementedError(
+                       'Unhandled pointer type: \'{}\' .'.format(node_type.type_name))
+
+        return node_type_name, result
+
+    elif node_type.is_void():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
+    elif node_type.is_bool():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cvale)
+    elif node_type.is_number():
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+    elif node_type.is_char():
+        result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
+    elif node_type.is_enum():
+        node_type_name = 'int'
+        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
+    else:
+        raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(node_type.type_name))
+
+    return node_type_name, result
+
 def generate_js_value(node, cval, name):
     nodetype = ''
     result = ''
@@ -574,6 +760,56 @@ def generate_js_value(node, cval, name):
         nodetype += '*'
 
     return nodetype, result
+
+
+def clang_generate_jerry_functions(functions):
+    for function in functions:
+        funcname = function.name
+        params = function.params
+        jerry_function = []
+        native_params = []
+        buffers_to_free = []
+
+        if params:
+            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=len(params),
+                                                            FUNC=funcname))
+
+            for index, param in enumerate(params):
+                index = str(index)
+                result, buffers = clang_generate_c_values(param,
+                                                    'args_p['+index+']',
+                                                    funcname,
+                                                    'arg_' + index,
+                                                    index)
+
+                if result:
+                    native_params.append('arg_' + index)
+                    buffers_to_free += buffers
+                    comment = JS_ARG_COMMENT.format(INDEX=index)
+                    jerry_function.append(comment + result)
+                else:
+                    jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0, FUNC=funcname)
+
+        native_params = (', ').join(native_params)
+
+        return_type, result = clang_generate_js_value(function, 'result', 'ret_val')
+
+        if return_type == 'void':
+            jerry_function.append(C_NATIVE_CALL.format(RETURN='',
+                                                       RESULT='',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
+        else:
+            jerry_function.append(C_NATIVE_CALL.format(RETURN=return_type,
+                                                       RESULT=' result = ',
+                                                       NATIVE=funcname,
+                                                       PARAM=native_params))
+
+        jerry_function += buffers_to_free
+        jerry_function.append(result)
+
+        yield JS_FUNC_HANDLER.format(NAME=funcname,
+                                     BODY=('\n').join(jerry_function))
 
 
 def generate_jerry_functions(functions):
@@ -641,6 +877,9 @@ def generate_c_source(header, api_headers, dirname):
     visitor = AST_Visitor()
     visitor.visit(ast)
 
+    clang_visitor = ClangTranslationUnitVisitor(header, api_headers, preproc_args)
+    clang_visitor.visit()
+
     functions, decls = get_functions_and_decls(ast, api_headers)
     typedefs = get_typedefs(ast)
     params = get_params(functions)
@@ -658,15 +897,28 @@ def generate_c_source(header, api_headers, dirname):
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
-    for jerry_function in generate_jerry_functions(functions):
-        generated_source.append(jerry_function)
-
     init_function = []
-    for function in functions:
-        init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for enumname in visitor.enumnames:
-        init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+    if args.libclang:
+        for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
+            generated_source.append(jerry_function)
+
+        for function in clang_visitor.function_decls:
+            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+
+        for decl in clang_visitor.enum_constant_decls:
+            init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
+
+    else:
+        for jerry_function in generate_jerry_functions(functions):
+            generated_source.append(jerry_function)
+
+        for function in functions:
+            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+
+        for enumname in visitor.enumnames:
+            init_function.append(INIT_REGIST_ENUM.format(ENUM=enumname))
+
 
     for decl in decls:
         name = decl.name
@@ -759,6 +1011,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('directory',
                         help='Root directory of c api headers.')
+
+    parser.add_argument('--libclang',
+                        help='use libclang instead of pycparser',
+                        action='store_true')
 
     args = parser.parse_args()
 
