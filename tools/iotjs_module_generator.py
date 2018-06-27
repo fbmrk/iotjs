@@ -462,7 +462,6 @@ def clang_generate_c_values(node, jval, funcname, name, index):
     node_declaration_kind = node_declaration.node_kind
 
     if node_declaration_kind.is_struct_decl() or node_declaration_kind.is_union_decl():
-        struct_members = []
         struct_decl = node_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
 
@@ -481,10 +480,11 @@ def clang_generate_c_values(node, jval, funcname, name, index):
                                       JVAL=jval,
                                       FUNC=funcname)
 
+        result += "  {TYPE} {NAME};".format(TYPE=struct_type, NAME=name)
+
         for field in struct_decl.field_decls:
             member_name = struct_name + '_' + field.name
             member_val = member_name + '_value'
-            struct_members.append(member_name)
 
             getval, buffers = clang_generate_c_values(field,
                                                       member_val,
@@ -497,14 +497,11 @@ def clang_generate_c_values(node, jval, funcname, name, index):
             result += JS_GET_PROP.format(NAME=struct_name,
                                          MEM=field.name,
                                          OBJ=jval,
-                                         GET_VAl=getval)
+                                         GET_VAl=getval,
+                                         STRUCT=name)
 
             if node_declaration_kind.is_union_decl():
                 break
-
-        result += C_NATIVE_STRUCT.format(TYPE=struct_type,
-                                         NAME=name,
-                                         MEM=(',').join(struct_members))
 
         return result, buffers_to_free
 
@@ -789,6 +786,9 @@ def clang_generate_jerry_functions(functions):
                     jerry_function.append(comment + result)
                 else:
                     jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0, FUNC=funcname)
+        else:
+            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=0,
+                                                            FUNC=funcname))
 
         native_params = (', ').join(native_params)
 
@@ -808,8 +808,8 @@ def clang_generate_jerry_functions(functions):
         jerry_function += buffers_to_free
         jerry_function.append(result)
 
-        yield JS_FUNC_HANDLER.format(NAME=funcname,
-                                     BODY=('\n').join(jerry_function))
+        yield JS_FUNC.format(NAME=funcname + '_handler',
+                             BODY=('\n').join(jerry_function))
 
 
 def generate_jerry_functions(functions):
