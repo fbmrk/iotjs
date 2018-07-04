@@ -86,6 +86,9 @@ class ClangASTNodeType:
         return (self._canonical_type.kind == clang.cindex.TypeKind.CONSTANTARRAY or
                 self._canonical_type.kind == clang.cindex.TypeKind.INCOMPLETEARRAY)
 
+    def is_const(self):
+        return self._canonical_type.is_const_qualified()
+
     # Resolves all array dimensions recursively and returns with the underlying element type.
     @staticmethod
     def visit_array(clang_ast_type):
@@ -202,6 +205,12 @@ class ClangFieldDecl(ClangASTNode):
         ClangASTNode.__init__(self, cursor)
 
 
+# This class represents variable declarations in libclang.
+class ClangVarDecl(ClangASTNode):
+    def __init__(self, cursor):
+        ClangASTNode.__init__(self, cursor)
+
+
 # This class responsible for initializing and visiting the AST provided by libclang.
 class ClangTranslationUnitVisitor:
     def __init__(self, header, api_headers, args):
@@ -217,6 +226,7 @@ class ClangTranslationUnitVisitor:
 
         self.enum_constant_decls = []
         self.function_decls = []
+        self.var_decls = []
 
     def visit(self, cursor=None):
         if cursor is None:
@@ -231,7 +241,11 @@ class ClangTranslationUnitVisitor:
             cursor.location.file.name in self.api_headers):
             self.function_decls.append(ClangFunctionDecl(cursor))
 
+        elif (cursor.kind == clang.cindex.CursorKind.VAR_DECL and
+            cursor.location.file != None and
+            cursor.location.file.name in self.api_headers):
+            self.var_decls.append(ClangVarDecl(cursor))
+
         children = list(cursor.get_children())
         for child in children:
             self.visit(child)
-

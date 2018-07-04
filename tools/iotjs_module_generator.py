@@ -55,7 +55,7 @@ C_NUMBER_TYPES = {
 }
 
 
-def clang_generate_c_values(node, jval, funcname, name, index):
+def clang_generate_c_values(node, jval, funcname, name, index='0'):
     result = None
     check_type_str = None
     get_type = None
@@ -288,6 +288,27 @@ def clang_generate_jerry_functions(functions):
                                  BODY=('\n').join(jerry_function))
 
 
+def generate_getter_setter(var):
+    _, get_result = clang_generate_js_value(var, var.name, 'ret_val')
+    set_result, buffers = clang_generate_c_values(var, 'args_p[0]',
+                                                  var.name + '_setter',
+                                                  var.name + '_val')
+
+    if buffers:
+        set_result += '  jerry_release_value ({}_buffer);\n'.format(var.name + '_val')
+
+
+    set_result += '  {} = {};\n'.format(var.name, var.name + '_val')
+    set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
+
+    getter = JS_EXT_FUNC.format(NAME=var.name + '_getter',
+                                BODY=get_result)
+    setter = JS_EXT_FUNC.format(NAME=var.name + '_setter',
+                                BODY=set_result)
+
+    return getter, setter
+
+
 def generate_c_source(header, api_headers, dirname):
 
     clang_visitor = ClangTranslationUnitVisitor(header, api_headers, [])
@@ -306,17 +327,16 @@ def generate_c_source(header, api_headers, dirname):
     for decl in clang_visitor.enum_constant_decls:
         init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
 
-    # for decl in decls:
-    #     name = decl.name
-    #     if 'const' in decl.quals:
-    #         type, result = generate_js_value(decl, name, name + '_js')
-    #         init_function.append(result)
-    #         init_function.append(INIT_REGIST_CONST.format(NAME=name))
-    #     else:
-    #         type, result = generate_js_value(decl, name, 'ret_val')
-    #         generated_source.append(JS_EXT_FUNC.format(NAME=name + '_getter',
-    #                                                    BODY=result))
-    #         init_function.append(INIT_REGIST_VALUE.format(NAME=name))
+    for var in clang_visitor.var_decls:
+        if var.node_type.is_const():
+            _, result = clang_generate_js_value(var, var.name, var.name + '_js')
+            init_function.append(result)
+            init_function.append(INIT_REGIST_CONST.format(NAME=var.name))
+        else:
+            getter, setter = generate_getter_setter(var)
+            generated_source.append(getter)
+            generated_source.append(setter)
+            init_function.append(INIT_REGIST_VALUE.format(NAME=var.name))
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))

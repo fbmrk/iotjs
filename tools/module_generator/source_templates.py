@@ -34,8 +34,8 @@ jerry_value_t {NAME} (const jerry_value_t function_obj,
 JS_CHECK_ARG_COUNT = '''
   if (args_cnt != {COUNT})
   {{
-    const jerry_char_t* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, msg);
+    char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
 
@@ -45,16 +45,16 @@ JS_CHECK_ARG_COUNT = '''
 JS_CHECK_TYPE = '''
   if (!jerry_value_is_{TYPE} ({JVAL}))
   {{
-    const jerry_char_t* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, msg);
+    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
 
 JS_CHECK_TYPES = '''
   if (!jerry_value_is_{TYPE1} ({JVAL}) && !jerry_value_is_{TYPE2} ({JVAL}))
   {{
-    const jerry_char_t* msg = "Wrong argument type for {FUNC}(), expected {TYPE1} or {TYPE2}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, msg);
+    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE1} or {TYPE2}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
 
@@ -217,7 +217,9 @@ INIT_REGIST_VALUE = '''
   jerry_property_descriptor_t {NAME}_prop_desc;
   jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
   {NAME}_prop_desc.is_get_defined = true;
+  {NAME}_prop_desc.is_set_defined = true;
   {NAME}_prop_desc.getter = jerry_create_external_function ({NAME}_getter);
+  {NAME}_prop_desc.setter = jerry_create_external_function ({NAME}_setter);
   jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
   jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
