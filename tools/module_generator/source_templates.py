@@ -175,6 +175,19 @@ JS_WRITE_ARRAYBUFFER = '''
 '''
 
 
+# Template for unsupported C types
+
+JS_GET_UNSUPPORTED = '''
+  // TODO: Define the right value of the variable.
+  {TYPE} {NAME};
+'''
+
+JS_CREATE_UNSUPPORTED = '''
+  // TODO: Create a valid jerry_value_t from '{FROM}'.
+  jerry_value_t {NAME} = jerry_create_undefined ();
+'''
+
+
 # Template for include the right headers
 
 INCLUDE = '''

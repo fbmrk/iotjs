@@ -93,10 +93,11 @@ class ClangASTNodeType:
     @staticmethod
     def visit_array(clang_ast_type):
         if clang_ast_type.is_array():
-            element_type = ClangASTNodeType(clang_ast_type._canonical_type.element_type)
-            return ClangASTNodeType.visit_array(element_type)
+            clang_ast_type = ClangASTNodeType(clang_ast_type._canonical_type.element_type)
+            element_type, count = ClangASTNodeType.visit_array(clang_ast_type)
+            return element_type, count + 1
         else:
-            return clang_ast_type
+            return clang_ast_type, 0
 
     def get_array_type(self):
         assert self.is_array()
@@ -107,10 +108,11 @@ class ClangASTNodeType:
     @staticmethod
     def visit_pointer(clang_ast_type):
         if clang_ast_type.is_pointer():
-            pointee_type = ClangASTNodeType(clang_ast_type._canonical_type.get_pointee())
-            return ClangASTNodeType.visit_pointer(pointee_type)
+            clang_ast_type = ClangASTNodeType(clang_ast_type._canonical_type.get_pointee())
+            pointee_type, count = ClangASTNodeType.visit_pointer(clang_ast_type)
+            return pointee_type, count + 1
         else:
-            return clang_ast_type
+            return clang_ast_type, 0
 
     def get_pointee_type(self):
         assert self.is_pointer()
@@ -150,9 +152,19 @@ class ClangASTNode:
 
 
 # This class represents enum declarations in libclang.
-class ClangEnumConstantDecl(ClangASTNode):
+class ClangEnumDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
+        self._enum_constant_decls = []
+
+        children = list(cursor.get_children())
+        for child in children:
+            if child.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
+                self._enum_constant_decls.append(child.spelling)
+
+    @property
+    def enums(self):
+        return self._enum_constant_decls
 
 
 # This class represents function declarations in libclang.
@@ -228,24 +240,19 @@ class ClangTranslationUnitVisitor:
         self.function_decls = []
         self.var_decls = []
 
-    def visit(self, cursor=None):
-        if cursor is None:
-            cursor = self.translation_unit.cursor
+    def visit(self):
+        children = list(self.translation_unit.cursor.get_children())
 
-        if cursor.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
-            decl = ClangEnumConstantDecl(cursor)
-            self.enum_constant_decls.append(decl)
+        for cursor in children:
+            if cursor.kind == clang.cindex.CursorKind.ENUM_DECL:
+                self.enum_constant_decls.append(ClangEnumDecl(cursor))
 
-        elif (cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL and
-            cursor.location.file != None and
-            cursor.location.file.name in self.api_headers):
-            self.function_decls.append(ClangFunctionDecl(cursor))
+            elif (cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL and
+                cursor.location.file != None and
+                cursor.location.file.name in self.api_headers):
+                self.function_decls.append(ClangFunctionDecl(cursor))
 
-        elif (cursor.kind == clang.cindex.CursorKind.VAR_DECL and
-            cursor.location.file != None and
-            cursor.location.file.name in self.api_headers):
-            self.var_decls.append(ClangVarDecl(cursor))
-
-        children = list(cursor.get_children())
-        for child in children:
-            self.visit(child)
+            elif (cursor.kind == clang.cindex.CursorKind.VAR_DECL and
+                cursor.location.file != None and
+                cursor.location.file.name in self.api_headers):
+                self.var_decls.append(ClangVarDecl(cursor))

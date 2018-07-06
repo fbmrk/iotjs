@@ -57,8 +57,6 @@ C_NUMBER_TYPES = {
 
 def clang_generate_c_values(node, jval, funcname, name, index='0'):
     result = None
-    check_type_str = None
-    get_type = None
     buffers_to_free = []
 
     node_type = node.node_type
@@ -69,7 +67,7 @@ def clang_generate_c_values(node, jval, funcname, name, index='0'):
         struct_decl = node_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
 
-	if struct_name == '':
+        if struct_name == '':
             struct_name = struct_decl.node_type.type_name + index
             struct_type = struct_decl.node_type.type_name
         elif node_declaration_kind.is_struct_decl():
@@ -107,21 +105,19 @@ def clang_generate_c_values(node, jval, funcname, name, index='0'):
             if node_declaration_kind.is_union_decl():
                 break
 
-        return result, buffers_to_free
-
     elif node_type.is_pointer() or node_type.is_array():
         if node_type.is_pointer():
-            pointee_type = node_type.get_pointee_type()
+            pointee_type, count = node_type.get_pointee_type()
         else:
             # Array
-            pointee_type = node_type.get_array_type()
+            pointee_type, count = node_type.get_array_type()
 
-        if pointee_type.is_char():
+        if pointee_type.is_char() and count == 1:
             check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval, FUNC=funcname)
             get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
             result = check_type + get_type
 
-        elif pointee_type.is_number():
+        elif pointee_type.is_number() and count == 1:
             check_type = JS_CHECK_TYPES.format(TYPE1='typedarray',
                                                TYPE2='null',
                                                JVAL=jval,
@@ -133,30 +129,28 @@ def clang_generate_c_values(node, jval, funcname, name, index='0'):
 
             buffers_to_free.append(JS_WRITE_ARRAYBUFFER.format(NAME=name, JVAL=jval))
         else:
-            raise NotImplementedError('Unhandled pointer/array type: \'{}\' .'.format(node_type.type_name))
-
-        return result, buffers_to_free
-
+            result = JS_GET_UNSUPPORTED.format(TYPE=node_type.type_name,
+                                               NAME=name)
 
     elif node_type.is_bool():
-        check_type_str = 'boolean'
-        get_type = JS_GET_BOOL.format(NAME=name, JVAL=jval)
+        result = JS_GET_BOOL.format(NAME=name, JVAL=jval)
     elif node_type.is_number():
-        check_type_str = 'number'
+        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval, FUNC=funcname)
         get_type = JS_GET_NUM.format(TYPE=node_type.type_name, NAME=name, JVAL=jval)
+        result = check_type + get_type
     elif node_type.is_char():
-        check_type_str = 'string'
+        check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval, FUNC=funcname)
         get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
+        result = check_type + get_type
     elif node_type.is_enum():
-        check_type_str = 'number'
+        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval, FUNC=funcname)
         get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
+        result = check_type + get_type
 
     else:
-        raise NotImplementedError('\'{}\' handling is not implemented yet.'.format(node_type.type_name))
+        result = JS_GET_UNSUPPORTED.format(TYPE=node_type.type_name,
+                                           NAME=name)
 
-    check_type = JS_CHECK_TYPE.format(TYPE=check_type_str, JVAL=jval, FUNC=funcname)
-
-    result = check_type + get_type
     return result, buffers_to_free
 
 
@@ -177,7 +171,7 @@ def clang_generate_js_value(node, cval, name):
         struct_decl = node_type_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
 
-	if struct_name == '':
+        if struct_name == '':
             struct_name = struct_decl.node_type.type_name
             struct_type = struct_decl.node_type.type_name
         elif node_type_declaration_kind.is_struct_decl():
@@ -190,7 +184,7 @@ def clang_generate_js_value(node, cval, name):
         for field in struct_decl.field_decls:
             member = cval + '.' + field.name
             member_js = 'js_' + struct_name + '_' + field.name
-            mem_type, mem_val = clang_generate_js_value(field, member, member_js)
+            _, mem_val = clang_generate_js_value(field, member, member_js)
             result += mem_val
 
             result += JS_SET_PROP.format(NAME=struct_name,
@@ -201,21 +195,19 @@ def clang_generate_js_value(node, cval, name):
         return struct_type, result
 
     elif node_type.is_pointer():
-        pointee_type = node_type.get_pointee_type()
+        pointee_type, count = node_type.get_pointee_type()
         pointee_type_name = pointee_type.type_name
-        node_type_name = pointee_type_name + '*'
 
-        if pointee_type.is_char():
+        if pointee_type.is_char() and count == 1:
             result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
-        elif pointee_type.is_number():
+        elif pointee_type.is_number() and count == 1:
             array_type = C_NUMBER_TYPES[pointee_type_name]
             result = JS_CREATE_TYPEDARRAY.format(NAME=name,
                                                  FROM=cval,
                                                  TYPE=pointee_type_name,
                                                  ARRAY_TYPE=array_type)
         else:
-             raise NotImplementedError(
-                       'Unhandled pointer type: \'{}\' .'.format(node_type.type_name))
+            result = JS_CREATE_UNSUPPORTED.format(NAME=name, FROM=cval)
 
         return node_type_name, result
 
@@ -228,10 +220,9 @@ def clang_generate_js_value(node, cval, name):
     elif node_type.is_char():
         result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
     elif node_type.is_enum():
-        node_type_name = 'int'
         result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
     else:
-        raise NotImplementedError('\'{}\' return type handling is not implemented yet.'.format(node_type.type_name))
+        result = JS_CREATE_UNSUPPORTED.format(NAME=name, FROM=cval)
 
     return node_type_name, result
 
@@ -259,7 +250,7 @@ def clang_generate_jerry_functions(functions):
                 if result:
                     native_params.append('arg_' + index)
                     buffers_to_free += buffers
-                    comment = '\n//{INDEX}. argument\n'.format(INDEX=index)
+                    comment = '\n  // {}. argument\n'.format(index)
                     jerry_function.append(comment + result)
                 else:
                     jerry_function[0] = JS_CHECK_ARG_COUNT.format(COUNT=0,
@@ -325,7 +316,8 @@ def generate_c_source(header, api_headers, dirname):
         init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
     for decl in clang_visitor.enum_constant_decls:
-        init_function.append(INIT_REGIST_ENUM.format(ENUM=decl.name))
+        for enum in decl.enums:
+            init_function.append(INIT_REGIST_ENUM.format(ENUM=enum))
 
     for var in clang_visitor.var_decls:
         if var.node_type.is_const():
