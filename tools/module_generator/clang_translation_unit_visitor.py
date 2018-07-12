@@ -223,6 +223,72 @@ class ClangVarDecl(ClangASTNode):
         ClangASTNode.__init__(self, cursor)
 
 
+# This class represents macro definitions in libclang.
+# TokenKinds:
+#    'PUNCTUATION' = 0
+#    'KEYWORD' = 1
+#    'IDENTIFIER' = 2
+#    'LITERAL' = 3
+#    'COMMENT' = 4
+class ClangMacroDef(ClangASTNode):
+    def __init__(self, cursor):
+        ClangASTNode.__init__(self, cursor)
+        self._is_char = False
+        self._is_string = False
+        self._is_number = False
+        self._is_function_like = clang.cindex.conf.lib.clang_Cursor_isMacroFunctionLike(cursor)
+
+        self._tokens = []
+        self._token_kinds = []
+        for token in cursor.get_tokens():
+            self._tokens.append(token.spelling)
+            self._token_kinds.append(token.kind.value)
+
+        if self._token_kinds == [2, 3]: # '#define NUM 42' like macros
+            literal = self._tokens[1]
+
+            if "'" in literal: # char literal
+                self._is_char = True
+            elif '"' in literal: # string literal
+                self._is_string = True
+            else: # numeric literal
+                self._is_number = True
+
+        elif self._token_kinds == [2, 0, 3]: # '#define NUM -42' like macros
+            punct = self._tokens[1]
+            literal = self._tokens[2]
+
+            if ((punct == '+' or punct == '-') and
+            "'" not in literal and '"' not in literal): # numeric literal
+                self._is_number = True
+
+        elif self._token_kinds == [2, 3, 0, 3]: # '#define NUM 42 + 24' like macros
+            literal = self._tokens[1] + self._tokens[3]
+
+            if "'" not in literal and '"' not in literal: # numeric literal
+                self._is_number = True
+
+    @property
+    def tokens(self):
+        return self._tokens
+
+    @property
+    def token_kinds(self):
+        return self._token_kinds
+
+    def is_char(self):
+        return self._is_char
+
+    def is_string(self):
+        return self._is_string
+
+    def is_number(self):
+        return self._is_number
+
+    def is_function(self):
+        return self._is_function_like
+
+
 # This class responsible for initializing and visiting the AST provided by libclang.
 class ClangTranslationUnitVisitor:
     def __init__(self, header, api_headers, args):
@@ -232,13 +298,14 @@ class ClangTranslationUnitVisitor:
 
         # TODO: C++ needs a different configuration (-x C++).
         self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, args=args.append(self.clang_args))
+        self.translation_unit = index.parse(header, args=args.append(self.clang_args), options=1)
 
         self.api_headers = api_headers
 
         self.enum_constant_decls = []
         self.function_decls = []
         self.var_decls = []
+        self.macro_defs = []
 
     def visit(self):
         children = list(self.translation_unit.cursor.get_children())
@@ -256,3 +323,8 @@ class ClangTranslationUnitVisitor:
                 cursor.location.file != None and
                 cursor.location.file.name in self.api_headers):
                 self.var_decls.append(ClangVarDecl(cursor))
+
+            elif (cursor.kind == clang.cindex.CursorKind.MACRO_DEFINITION and
+                cursor.location.file != None and
+                cursor.location.file.name in self.api_headers):
+                self.macro_defs.append(ClangMacroDef(cursor))

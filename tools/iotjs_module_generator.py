@@ -300,6 +300,21 @@ def generate_getter_setter(var):
     return getter, setter
 
 
+def regist_macro(macro):
+    result = ''
+    name = macro.name
+
+    if macro.is_char():
+        result = '  char {NAME}_value = {NAME};'.format(NAME=name)
+        result += JS_CREATE_CHAR.format(NAME=name + '_js', FROM=name + '_value')
+    elif macro.is_string():
+        result = JS_CREATE_STRING.format(NAME=name + '_js', FROM=name)
+    elif macro.is_number():
+        result = JS_CREATE_VAL.format(NAME=name + '_js', TYPE='number', FROM=name)
+
+    return result, name
+
+
 def generate_c_source(header, api_headers, dirname):
 
     clang_visitor = ClangTranslationUnitVisitor(header, api_headers, [])
@@ -329,6 +344,13 @@ def generate_c_source(header, api_headers, dirname):
             generated_source.append(getter)
             generated_source.append(setter)
             init_function.append(INIT_REGIST_VALUE.format(NAME=var.name))
+
+    for macro in clang_visitor.macro_defs:
+        result, name = regist_macro(macro)
+        if result:
+            init_function.append(result)
+            init_function.append(INIT_REGIST_CONST.format(NAME=name))
+
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
                                              BODY=('\n').join(init_function)))
