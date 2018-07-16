@@ -56,9 +56,14 @@ class ClangASTNodeType:
     def __init__(self, clang_type):
         # We are only interested in the underlying canonical types.
         self._canonical_type = clang_type.get_canonical()
+        self._type_name = clang_type.spelling
 
     @property
     def type_name(self):
+        return self._type_name
+
+    @property
+    def builtin_type_name(self):
         return self._canonical_type.spelling
 
     def is_bool(self):
@@ -298,7 +303,7 @@ class ClangTranslationUnitVisitor:
 
         # TODO: C++ needs a different configuration (-x C++).
         self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, args=args.append(self.clang_args), options=1)
+        self.translation_unit = index.parse(header, args + self.clang_args, options=1)
 
         self.api_headers = api_headers
 

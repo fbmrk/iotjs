@@ -101,14 +101,14 @@ JS_GET_PROP = '''
 
 # TypedArray to pointer
 JS_GET_TYPEDARRAY = '''
-  {TYPE} * {NAME} = NULL;
+  {TYPE} {NAME} = NULL;
   jerry_length_t {NAME}_byteLength = 0;
   jerry_length_t {NAME}_byteOffset = 0;
   jerry_value_t {NAME}_buffer;
   if (jerry_value_is_typedarray ({JVAL}))
   {{
     {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
-    {NAME} = ({TYPE}*) malloc ({NAME}_byteLength);
+    {NAME} = ({TYPE}) malloc ({NAME}_byteLength);
     if({NAME} == NULL)
     {{
       jerry_release_value ({NAME}_buffer);
@@ -161,6 +161,22 @@ JS_CREATE_TYPEDARRAY = '''
     {NAME} = jerry_create_null ();
   }}
 '''
+
+TYPEDARRAY_TYPES = {
+    'signed char': 'INT8',
+    'unsigned char': 'UINT8',
+    'short': 'INT16',
+    'unsigned short': 'UINT16',
+    'int': 'INT32',
+    'unsigned int': 'UINT32',
+    'long': 'INT32',
+    'unsigned long': 'UINT32',
+    'long long': 'INT32',
+    'unsigned long long': 'UINT32',
+    'float': 'FLOAT32',
+    'double': 'FLOAT64',
+    'long double': 'FLOAT64'
+}
 
 
 # Template for write the values back into the ArrayBuffer after the native call
@@ -261,7 +277,7 @@ MODULES_JSON = '''
     "{NAME}_module": {{
       "native_files": ["{NAME}_js_wrapper.c"],
       "init": "Init_{NAME}",
-      "cmakefile": "module.cmake"
+      "cmakefile": "{CMAKE}"
     }}
   }}
 }}

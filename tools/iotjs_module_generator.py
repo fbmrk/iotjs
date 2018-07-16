@@ -23,37 +23,6 @@ from common_py.system.filesystem import FileSystem as fs
 from module_generator.source_templates import *
 from module_generator.clang_translation_unit_visitor import ClangTranslationUnitVisitor
 
-C_NUMBER_TYPES = {
-    'signed char': 'INT8',
-    'unsigned char': 'UINT8',
-    'short': 'INT16',
-    'short int': 'INT16',
-    'signed short': 'INT16',
-    'signed short int': 'INT16',
-    'unsigned short': 'UINT16',
-    'unsigned short int': 'UINT16',
-    'int': 'INT32',
-    'signed': 'INT32',
-    'signed int': 'INT32',
-    'unsigned': 'UINT32',
-    'unsigned int': 'UINT32',
-    'long': 'INT32',
-    'long int': 'INT32',
-    'signed long': 'INT32',
-    'signed long int': 'INT32',
-    'unsigned long': 'UINT32',
-    'unsigned long int': 'UINT32',
-    'long long': 'INT32',
-    'long long int': 'INT32',
-    'signed long long': 'INT32',
-    'signed long long int': 'INT32',
-    'unsigned long long': 'UINT32',
-    'unsigned long long int': 'UINT32',
-    'float': 'FLOAT32',
-    'double': 'FLOAT64',
-    'long double': 'FLOAT64'
-}
-
 
 def clang_generate_c_values(node, jval, funcname, name, index='0'):
     result = None
@@ -66,15 +35,11 @@ def clang_generate_c_values(node, jval, funcname, name, index='0'):
     if node_declaration_kind.is_struct_decl() or node_declaration_kind.is_union_decl():
         struct_decl = node_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
+        struct_type = node_type.type_name
 
         if struct_name == '':
-            struct_name = struct_decl.node_type.type_name + index
-            struct_type = struct_decl.node_type.type_name
-        elif node_declaration_kind.is_struct_decl():
-            struct_type = 'struct ' + struct_name
-            struct_name += index
-        elif node_declaration_kind.is_union_decl():
-            struct_type = 'union ' + struct_name
+            struct_name = struct_type + index
+        else:
             struct_name += index
 
 
@@ -123,7 +88,7 @@ def clang_generate_c_values(node, jval, funcname, name, index='0'):
                                                JVAL=jval,
                                                FUNC=funcname)
 
-            get_type = JS_GET_TYPEDARRAY.format(TYPE=pointee_type.type_name, NAME=name, JVAL=jval)
+            get_type = JS_GET_TYPEDARRAY.format(TYPE=node_type.type_name, NAME=name, JVAL=jval)
 
             result = check_type + get_type
 
@@ -170,14 +135,10 @@ def clang_generate_js_value(node, cval, name):
     if node_type_declaration_kind.is_struct_decl() or node_type_declaration_kind.is_union_decl():
         struct_decl = node_type_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
+        struct_type = node_type.type_name
 
         if struct_name == '':
             struct_name = struct_decl.node_type.type_name
-            struct_type = struct_decl.node_type.type_name
-        elif node_type_declaration_kind.is_struct_decl():
-            struct_type = 'struct ' + struct_name
-        elif node_type_declaration_kind.is_union_decl():
-            struct_type = 'union ' + struct_name
 
         result = JS_CREATE_VAL.format(NAME=name, TYPE='object', FROM='')
 
@@ -201,7 +162,7 @@ def clang_generate_js_value(node, cval, name):
         if pointee_type.is_char() and count == 1:
             result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
         elif pointee_type.is_number() and count == 1:
-            array_type = C_NUMBER_TYPES[pointee_type_name]
+            array_type = TYPEDARRAY_TYPES[pointee_type_name]
             result = JS_CREATE_TYPEDARRAY.format(NAME=name,
                                                  FROM=cval,
                                                  TYPE=pointee_type_name,
@@ -315,41 +276,56 @@ def regist_macro(macro):
     return result, name
 
 
-def generate_c_source(header, api_headers, dirname):
+def generate_c_source(header, api_headers, dirname, args):
 
-    clang_visitor = ClangTranslationUnitVisitor(header, api_headers, [])
+    visitor_args = []
+
+    if args.define:
+        visitor_args += ['-D' + define for define in args.define]
+    if args.defines:
+        visitor_args += ['-D' + define for define in args.defines.read().splitlines()]
+    if args.include:
+        visitor_args += ['-I' + inc for inc in args.include]
+    if args.includes:
+        visitor_args += ['-I' + inc for inc in args.includes.read().splitlines()]
+
+    clang_visitor = ClangTranslationUnitVisitor(header, api_headers, visitor_args)
     clang_visitor.visit()
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
     init_function = []
 
-    for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
-        generated_source.append(jerry_function)
+    if 'functions' not in args.off:
+        for jerry_function in clang_generate_jerry_functions(clang_visitor.function_decls):
+            generated_source.append(jerry_function)
 
-    for function in clang_visitor.function_decls:
-        init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+        for function in clang_visitor.function_decls:
+            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
 
-    for decl in clang_visitor.enum_constant_decls:
-        for enum in decl.enums:
-            init_function.append(INIT_REGIST_ENUM.format(ENUM=enum))
+    if 'enums' not in args.off:
+        for decl in clang_visitor.enum_constant_decls:
+            for enum in decl.enums:
+                init_function.append(INIT_REGIST_ENUM.format(ENUM=enum))
 
-    for var in clang_visitor.var_decls:
-        if var.node_type.is_const():
-            _, result = clang_generate_js_value(var, var.name, var.name + '_js')
-            init_function.append(result)
-            init_function.append(INIT_REGIST_CONST.format(NAME=var.name))
-        else:
-            getter, setter = generate_getter_setter(var)
-            generated_source.append(getter)
-            generated_source.append(setter)
-            init_function.append(INIT_REGIST_VALUE.format(NAME=var.name))
+    if 'variables' not in args.off:
+        for var in clang_visitor.var_decls:
+            if var.node_type.is_const():
+                _, result = clang_generate_js_value(var, var.name, var.name + '_js')
+                init_function.append(result)
+                init_function.append(INIT_REGIST_CONST.format(NAME=var.name))
+            else:
+                getter, setter = generate_getter_setter(var)
+                generated_source.append(getter)
+                generated_source.append(setter)
+                init_function.append(INIT_REGIST_VALUE.format(NAME=var.name))
 
-    for macro in clang_visitor.macro_defs:
-        result, name = regist_macro(macro)
-        if result:
-            init_function.append(result)
-            init_function.append(INIT_REGIST_CONST.format(NAME=name))
+    if 'macros' not in args.off:
+        for macro in clang_visitor.macro_defs:
+            result, name = regist_macro(macro)
+            if result:
+                init_function.append(result)
+                init_function.append(INIT_REGIST_CONST.format(NAME=name))
 
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,
@@ -380,7 +356,9 @@ def search_for_lib(directory):
                 return root, file
 
 
-def generate_module(directory):
+def generate_module(args):
+    directory = args.directory
+
     if fs.isdir(directory):
         # handle strings ends with '/'
         if directory[-1] == '/':
@@ -400,28 +378,32 @@ def generate_module(directory):
     if not fs.isdir(output_dir):
         os.mkdir(output_dir)
 
-    lib_root, lib_name = search_for_lib(directory)
-
     header_file = fs.join(output_dir, dirname + '_js_wrapper.h')
     header_text, api_headers = generate_header(directory)
 
     with open(header_file, 'w') as h:
         h.write(header_text)
 
-    c_file = generate_c_source(header_file, api_headers, dirname)
-    json_file = MODULES_JSON.format(NAME=dirname)
-    cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
+    c_file = generate_c_source(header_file, api_headers, dirname, args)
 
     with open(fs.join(output_dir, dirname + '_js_wrapper.c'), 'w') as c:
         c.write(c_file)
 
+    if args.no_lib:
+        json_file = MODULES_JSON.format(NAME=dirname, CMAKE='')
+    else:
+        lib_root, lib_name = search_for_lib(directory)
+        cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
+
+        with open(fs.join(output_dir, 'module.cmake'), 'w') as cmake:
+            cmake.write(cmake_file)
+
+        fs.copyfile(fs.join(lib_root, lib_name), fs.join(output_dir, lib_name))
+
+        json_file = MODULES_JSON.format(NAME=dirname, CMAKE='module.cmake')
+
     with open(fs.join(output_dir, 'modules.json'), 'w') as json:
         json.write(json_file)
-
-    with open(fs.join(output_dir, 'module.cmake'), 'w') as cmake:
-        cmake.write(cmake_file)
-
-    fs.copyfile(fs.join(lib_root, lib_name), fs.join(output_dir, lib_name))
 
     return output_dir, dirname + '_module'
 
@@ -429,9 +411,25 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('directory',
-                        help='Root directory of c api headers.')
+    parser.add_argument('directory', help='Root directory of c api headers.')
+
+    parser.add_argument('--off', choices=['functions', 'variables', 'enums', 'macros'],
+        action='append', default=[], help='Turn off source generating.')
+
+    parser.add_argument('--no-lib', action='store_true', default=False,
+        help='Disable static library copying.')
+
+    parser.add_argument('--define', action='append', default=[],
+        help='Add macro definition.')
+    parser.add_argument('--defines', type=argparse.FileType('r'),
+        help='A file, which contains macro definitions.')
+
+    parser.add_argument('--include', action='append', default=[],
+        help='Add path to include file.')
+    parser.add_argument('--includes', type=argparse.FileType('r'),
+        help='A file, which contains paths to include files.')
+
 
     args = parser.parse_args()
 
-    generate_module(args.directory)
+    generate_module(args)
