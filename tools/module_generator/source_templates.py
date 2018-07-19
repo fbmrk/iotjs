@@ -18,6 +18,7 @@
 # Template for a jerry_external_handler_t type function
 
 JS_EXT_FUNC = '''
+// external function for API functions or for getters / setters
 jerry_value_t {NAME} (const jerry_value_t function_obj,
                       const jerry_value_t this_val,
                       const jerry_value_t args_p[],
@@ -32,6 +33,7 @@ jerry_value_t {NAME} (const jerry_value_t function_obj,
 # Template for check the count of the external function's arguments
 
 JS_CHECK_ARG_COUNT = '''
+  // check the count of the external function's arguments
   if (args_cnt != {COUNT})
   {{
     char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
@@ -43,6 +45,7 @@ JS_CHECK_ARG_COUNT = '''
 # Templates for check the type of a jerry_value_t variable
 
 JS_CHECK_TYPE = '''
+  // check the type of a jerry_value_t variable
   if (!jerry_value_is_{TYPE} ({JVAL}))
   {{
     char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
@@ -51,6 +54,7 @@ JS_CHECK_TYPE = '''
 '''
 
 JS_CHECK_TYPES = '''
+  // check the type of a jerry_value_t variable
   if (!jerry_value_is_{TYPE1} ({JVAL}) && !jerry_value_is_{TYPE2} ({JVAL}))
   {{
     char* msg = "Wrong argument type for {FUNC}(), expected {TYPE1} or {TYPE2}.";
@@ -63,22 +67,26 @@ JS_CHECK_TYPES = '''
 
 # Boolean to _Bool
 JS_GET_BOOL = '''
+  // create a _Bool value from a jerry_value_t
   _Bool {NAME} = jerry_value_to_boolean ({JVAL});
 '''
 
 # Number to int/float/enum
 JS_GET_NUM = '''
+  // create an integer / floating point number from a jerry_value_t
   {TYPE} {NAME} = jerry_get_number_value ({JVAL});
 '''
 
 # one length String to char
 JS_GET_CHAR = '''
+  // create a character value from a jerry_value_t
   char {NAME};
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
 '''
 
 # String to char[]
 JS_GET_STRING = '''
+  // create an array of characters from a jerry_value_t
   jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
   char {NAME}[{NAME}_size];
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
@@ -87,10 +95,12 @@ JS_GET_STRING = '''
 
 # Object to struct/union
 JS_GET_PROP = '''
+  // get a property from a jerry_value_t object
   jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
   jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
   jerry_release_value ({NAME}_{MEM}_name);
 
+  // get the value from the property and set the {STRUCT} struct's member
   if (!jerry_value_is_undefined ({NAME}_{MEM}_value))
   {{
     {GET_VAl}
@@ -101,6 +111,7 @@ JS_GET_PROP = '''
 
 # TypedArray to pointer
 JS_GET_TYPEDARRAY = '''
+  // create a pointer to number from a jerry_value_t
   {TYPE} {NAME} = NULL;
   jerry_length_t {NAME}_byteLength = 0;
   jerry_length_t {NAME}_byteOffset = 0;
@@ -138,6 +149,7 @@ JS_CREATE_STRING = '''
 
 # Set object property
 JS_SET_PROP = '''
+  // set a property to a jerry_value_t object
   jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
   jerry_value_t {NAME}_{MEM}_res = jerry_set_property ({OBJ}, {NAME}_{MEM}_name, {JVAL});
   jerry_release_value ({JVAL});
@@ -147,6 +159,7 @@ JS_SET_PROP = '''
 
 # Create TypedArray or Null
 JS_CREATE_TYPEDARRAY = '''
+  // create a typedarray or null from a pointer
   jerry_value_t {NAME};
   if ({FROM} != NULL)
   {{
@@ -179,14 +192,16 @@ TYPEDARRAY_TYPES = {
 }
 
 
-# Template for write the values back into the ArrayBuffer after the native call
+# Template for write the values back into an ArrayBuffer after the native call
 
 JS_WRITE_ARRAYBUFFER = '''
+  // write the values back into an arraybuffer from a pointer
   if (jerry_value_is_typedarray ({JVAL}))
   {{
     jerry_arraybuffer_write ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
     jerry_release_value ({NAME}_buffer);
-    free ({NAME});
+    // TODO: if you won't use {NAME} pointer, uncomment the line below
+    //free ({NAME});
   }}
 '''
 
@@ -216,6 +231,7 @@ INCLUDE = '''
 # Templates for the module initialization function
 
 INIT_FUNC = '''
+// init function for the module
 jerry_value_t Init_{NAME}()
 {{
   jerry_value_t object = jerry_create_object();
@@ -225,6 +241,7 @@ jerry_value_t Init_{NAME}()
 '''
 
 INIT_REGIST_FUNC = '''
+  // set an external function as a property to the module object
   jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{NAME}");
   jerry_value_t {NAME}_func = jerry_create_external_function ({NAME}_handler);
   jerry_value_t {NAME}_ret = jerry_set_property (object, {NAME}_name, {NAME}_func);
@@ -234,15 +251,20 @@ INIT_REGIST_FUNC = '''
 '''
 
 INIT_REGIST_ENUM = '''
-  jerry_value_t {ENUM}_name = jerry_create_string ((const jerry_char_t*)"{ENUM}");
-  jerry_value_t {ENUM}_enum = jerry_create_number ({ENUM});
-  jerry_value_t {ENUM}_ret = jerry_set_property (object, {ENUM}_name, {ENUM}_enum);
-  jerry_release_value ({ENUM}_name);
-  jerry_release_value ({ENUM}_enum);
+  // set an enum constant as a property to the module object
+  jerry_property_descriptor_t {ENUM}_prop_desc;
+  jerry_init_property_descriptor_fields (&{ENUM}_prop_desc);
+  {ENUM}_prop_desc.is_value_defined = true;
+  {ENUM}_prop_desc.value = jerry_create_number ({ENUM});
+  jerry_value_t {ENUM}_name = jerry_create_string ((const jerry_char_t *)"{ENUM}");
+  jerry_value_t {ENUM}_ret = jerry_define_own_property (object, {ENUM}_prop_name, &{ENUM}_prop_desc);
   jerry_release_value ({ENUM}_ret);
+  jerry_release_value ({ENUM}_name);
+  jerry_free_property_descriptor_fields (&{ENUM}_prop_desc);
 '''
 
 INIT_REGIST_VALUE = '''
+  // set a global variable as a property to the module object
   jerry_property_descriptor_t {NAME}_prop_desc;
   jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
   {NAME}_prop_desc.is_get_defined = true;
@@ -257,6 +279,7 @@ INIT_REGIST_VALUE = '''
 '''
 
 INIT_REGIST_CONST = '''
+  // set a global constant or a macro as a property to the module object
   jerry_property_descriptor_t {NAME}_prop_desc;
   jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
   {NAME}_prop_desc.is_value_defined = true;
