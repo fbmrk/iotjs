@@ -238,60 +238,44 @@ class ClangVarDecl(ClangASTNode):
 class ClangMacroDef(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
-        self._is_char = False
-        self._is_string = False
-        self._is_number = False
-        self._is_function_like = clang.cindex.conf.lib.clang_Cursor_isMacroFunctionLike(cursor)
 
-        self._tokens = []
-        self._token_kinds = []
+        self.tokens = []
+        self.token_kinds = []
         for token in cursor.get_tokens():
-            self._tokens.append(token.spelling)
-            self._token_kinds.append(token.kind.value)
-
-        if self._token_kinds == [2, 3]: # '#define NUM 42' like macros
-            literal = self._tokens[1]
-
-            if "'" in literal: # char literal
-                self._is_char = True
-            elif '"' in literal: # string literal
-                self._is_string = True
-            else: # numeric literal
-                self._is_number = True
-
-        elif self._token_kinds == [2, 0, 3]: # '#define NUM -42' like macros
-            punct = self._tokens[1]
-            literal = self._tokens[2]
-
-            if ((punct == '+' or punct == '-') and
-            "'" not in literal and '"' not in literal): # numeric literal
-                self._is_number = True
-
-        elif self._token_kinds == [2, 3, 0, 3]: # '#define NUM 42 + 24' like macros
-            literal = self._tokens[1] + self._tokens[3]
-
-            if "'" not in literal and '"' not in literal: # numeric literal
-                self._is_number = True
-
-    @property
-    def tokens(self):
-        return self._tokens
-
-    @property
-    def token_kinds(self):
-        return self._token_kinds
+            self.tokens.append(token.spelling)
+            self.token_kinds.append(token.kind.value)
 
     def is_char(self):
-        return self._is_char
+        if self.token_kinds == [2, 3]: # "#define CH 'a'" like macros
+            if "'" in self.tokens[1]: # char literal
+                return True
+        return False
 
     def is_string(self):
-        return self._is_string
+        if self.token_kinds == [2, 3]: # '#define STR "abc"' like macros
+            if '"' in self.tokens[1]: # string literal
+                return True
+        return False
 
     def is_number(self):
-        return self._is_number
+        if self.token_kinds == [2, 3]: # '#define NUM 42' like macros
+            if "'" not in self.tokens[1] and '"' not in self.tokens[1]: # numeric literal
+                return True
+
+        elif self.token_kinds == [2, 0, 3]: # '#define NUM -42' like macros
+            if (self.tokens[1] in ['+', '-', '~'] and
+            "'" not in self.tokens[2] and '"' not in self.tokens[2]): # numeric literal
+                return True
+
+        elif self.token_kinds == [2, 3, 0, 3]: # '#define NUM 42 + 24' like macros
+            literal = self.tokens[1] + self.tokens[3]
+            if "'" not in literal and '"' not in literal: # numeric literal
+                return True
+
+        return False
 
     def is_function(self):
-        return self._is_function_like
+        return clang.cindex.conf.lib.clang_Cursor_isMacroFunctionLike(self._cursor)
 
 
 # This class responsible for initializing and visiting the AST provided by libclang.
@@ -333,3 +317,14 @@ class ClangTranslationUnitVisitor:
                 cursor.location.file != None and
                 cursor.location.file.name in self.api_headers):
                 self.macro_defs.append(ClangMacroDef(cursor))
+
+        for first in self.macro_defs:
+            for second in self.macro_defs:
+                for i, token in enumerate(second.tokens):
+                    if i and first.name == token:
+                        second.tokens = (second.tokens[:i] +
+                                          first.tokens[1:] +
+                                          second.tokens[i+1:])
+                        second.token_kinds = (second.token_kinds[:i] +
+                                               first.token_kinds[1:] +
+                                               second.token_kinds[i+1:])
