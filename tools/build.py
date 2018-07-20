@@ -152,8 +152,6 @@ def init_options():
                  'openwrt', 'windows'],
         default=platform.os(),
         help='Specify the target OS (default: %(default)s).')
-    parser.add_argument('--generate-module',
-        help='Root directory of c api sources.')
 
 
     jerry_group = parser.add_argument_group('Arguments of JerryScript',
@@ -431,13 +429,6 @@ if __name__ == '__main__':
     if not options.no_init_submodule:
         print_progress('Initialize submodule')
         init_submodule()
-
-    if options.generate_module:
-        from iotjs_module_generator import generate_module
-        mod_path, mod_name = generate_module(options.generate_module)
-
-        options.external_modules.add(mod_path)
-        options.cmake_param.append('-DENABLE_MODULE_%s=ON' % mod_name.upper())
 
     build_iotjs(options)
 

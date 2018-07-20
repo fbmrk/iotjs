@@ -375,7 +375,6 @@ def generate_module(args):
     with open(fs.join(output_dir, 'modules.json'), 'w') as json:
         json.write(json_file)
 
-    return output_dir, dirname + '_module'
 
 if __name__ == '__main__':
     import argparse
