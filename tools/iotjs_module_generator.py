@@ -245,7 +245,7 @@ def regist_macro(macro):
         result = JS_CREATE_VAL.format(NAME=name + '_js', TYPE='number',
                                       FROM=name)
 
-    return result, name
+    return result
 
 
 def generate_c_source(header, api_headers, dirname, args):
@@ -293,10 +293,10 @@ def generate_c_source(header, api_headers, dirname, args):
 
     if 'macros' not in args.off:
         for macro in visitor.macro_defs:
-            result, name = regist_macro(macro)
+            result = regist_macro(macro)
             if result:
                 init_function.append(result)
-                init_function.append(INIT_REGIST_CONST.format(NAME=name))
+                init_function.append(INIT_REGIST_CONST.format(NAME=macro.name))
 
 
     generated_source.append(INIT_FUNC.format(NAME=dirname,

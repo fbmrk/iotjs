@@ -245,33 +245,27 @@ class ClangMacroDef(ClangASTNode):
             self.tokens.append(token.spelling)
             self.token_kinds.append(token.kind.value)
 
+    @property
+    def content(self):
+        return (' ').join(self.tokens[1:])
+
     def is_char(self):
-        if self.token_kinds == [2, 3]: # "#define CH 'a'" like macros
-            if "'" in self.tokens[1]: # char literal
+        if (self.token_kinds == [2, 3] and # "#define CH 'a'" like macros
+            "'" in self.tokens[1]): # char literal
                 return True
         return False
 
     def is_string(self):
-        if self.token_kinds == [2, 3]: # '#define STR "abc"' like macros
-            if '"' in self.tokens[1]: # string literal
+        if (self.token_kinds == [2, 3] and # '#define STR "abc"' like macros
+            '"' in self.tokens[1]): # string literal
                 return True
         return False
 
     def is_number(self):
-        if self.token_kinds == [2, 3]: # '#define NUM 42' like macros
-            if "'" not in self.tokens[1] and '"' not in self.tokens[1]: # numeric literal
-                return True
-
-        elif self.token_kinds == [2, 0, 3]: # '#define NUM -42' like macros
-            if (self.tokens[1] in ['+', '-', '~'] and
-            "'" not in self.tokens[2] and '"' not in self.tokens[2]): # numeric literal
-                return True
-
-        elif self.token_kinds == [2, 3, 0, 3]: # '#define NUM 42 + 24' like macros
-            literal = self.tokens[1] + self.tokens[3]
-            if "'" not in literal and '"' not in literal: # numeric literal
-                return True
-
+        if (self.content and # has content
+            not [x for x in self.token_kinds[1:] if x in [1, 2, 4]] and # macro contains only literals and punctuations
+            "'" not in self.content and '"' not in self.content): # there are no char and string literals
+            return True
         return False
 
     def is_function(self):
