@@ -68,7 +68,7 @@ JS_CHECK_TYPES = '''
 # Boolean to _Bool
 JS_GET_BOOL = '''
   // create a _Bool value from a jerry_value_t
-  _Bool {NAME} = jerry_value_to_boolean ({JVAL});
+  {TYPE} {NAME} = jerry_value_to_boolean ({JVAL});
 '''
 
 # Number to int/float/enum
@@ -80,7 +80,7 @@ JS_GET_NUM = '''
 # one length String to char
 JS_GET_CHAR = '''
   // create a character value from a jerry_value_t
-  char {NAME};
+  {TYPE} {NAME};
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
 '''
 
@@ -88,7 +88,7 @@ JS_GET_CHAR = '''
 JS_GET_STRING = '''
   // create an array of characters from a jerry_value_t
   jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
-  char {NAME}[{NAME}_size];
+  {TYPE} {NAME}[{NAME}_size + 1];
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
   {NAME}[{NAME}_size] = '\\0';
 '''
@@ -100,7 +100,7 @@ JS_GET_PROP = '''
   jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
   jerry_release_value ({NAME}_{MEM}_name);
 
-  // get the value from the property and set the {STRUCT} struct's member
+  // get the value from the property and set the {STRUCT} struct/union's member
   if (!jerry_value_is_undefined ({NAME}_{MEM}_value))
   {{
     {GET_VAl}
@@ -112,14 +112,14 @@ JS_GET_PROP = '''
 # TypedArray to pointer
 JS_GET_TYPEDARRAY = '''
   // create a pointer to number from a jerry_value_t
-  {TYPE} {NAME} = NULL;
+  {TYPE} * {NAME} = NULL;
   jerry_length_t {NAME}_byteLength = 0;
   jerry_length_t {NAME}_byteOffset = 0;
   jerry_value_t {NAME}_buffer;
   if (jerry_value_is_typedarray ({JVAL}))
   {{
     {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
-    {NAME} = ({TYPE}) malloc ({NAME}_byteLength);
+    {NAME} = ({TYPE}*) malloc ({NAME}_byteLength);
     if({NAME} == NULL)
     {{
       jerry_release_value ({NAME}_buffer);
@@ -144,7 +144,15 @@ JS_CREATE_CHAR = '''
 
 # Create String
 JS_CREATE_STRING = '''
-  jerry_value_t {NAME} = jerry_create_string ((jerry_char_t*){FROM});
+  jerry_value_t {NAME};
+  if ({FROM} != NULL)
+  {{
+    {NAME} = jerry_create_string ((jerry_char_t*){FROM});
+  }}
+  else
+  {{
+    {NAME} = jerry_create_null ();
+  }}
 '''
 
 # Set object property
@@ -219,6 +227,68 @@ JS_CREATE_UNSUPPORTED = '''
 '''
 
 
+# Templates for setter functions
+
+# Set a _Bool variable
+JS_SET_BOOL = '''
+  // set the value of {NAME}
+  {NAME} = jerry_value_to_boolean ({JVAL});
+'''
+
+# Set an int/float/enum variable
+JS_SET_NUM = '''
+  // set the value of {NAME}
+  {NAME} = jerry_get_number_value ({JVAL});
+'''
+
+# Set a char variable
+JS_SET_CHAR = '''
+  // set the value of {NAME}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
+'''
+
+# Set a char* variable
+JS_SET_CHAR_PTR = '''
+  // set the value of {NAME}
+  jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
+  if (!{NAME})
+  {{
+    {NAME} = ({TYPE}*) malloc ({NAME}_size + 1);
+  }}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
+  {NAME}[{NAME}_size] = '\\0';
+'''
+
+# Set a char[] variable
+JS_SET_CHAR_ARR = '''
+  // set the value of {NAME}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {SIZE});
+  {NAME}[{SIZE}] = '\\0';
+'''
+
+# Set a pointer
+JS_SET_TYPEDARRAY = '''
+  // set the value of {NAME}
+  jerry_length_t {NAME}_byteLength = 0;
+  jerry_length_t {NAME}_byteOffset = 0;
+  jerry_value_t {NAME}_buffer;
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
+    if ({NAME} == NULL)
+    {{
+      {NAME} = ({TYPE}*) malloc ({NAME}_byteLength);
+    }}
+    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+    jerry_release_value ({NAME}_buffer);
+  }}
+  else
+  {{
+    {NAME} = NULL;
+  }}
+'''
+
+
 # Template for include the right headers
 
 INCLUDE = '''
@@ -257,7 +327,7 @@ INIT_REGIST_ENUM = '''
   {ENUM}_prop_desc.is_value_defined = true;
   {ENUM}_prop_desc.value = jerry_create_number ({ENUM});
   jerry_value_t {ENUM}_name = jerry_create_string ((const jerry_char_t *)"{ENUM}");
-  jerry_value_t {ENUM}_ret = jerry_define_own_property (object, {ENUM}_prop_name, &{ENUM}_prop_desc);
+  jerry_value_t {ENUM}_ret = jerry_define_own_property (object, {ENUM}_name, &{ENUM}_prop_desc);
   jerry_release_value ({ENUM}_ret);
   jerry_release_value ({ENUM}_name);
   jerry_free_property_descriptor_fields (&{ENUM}_prop_desc);
@@ -288,6 +358,22 @@ INIT_REGIST_CONST = '''
   jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
   jerry_release_value ({NAME}_prop_name);
+  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
+'''
+
+INIT_REGIST_NUM_ARR = '''
+  // set a global numeric array as a property to the module object
+  jerry_value_t {NAME}_buffer = jerry_create_arraybuffer_external (sizeof({TYPE}) * {SIZE}, (uint8_t*){NAME}, NULL);
+  jerry_value_t {NAME}_typedarray = jerry_create_typedarray_for_arraybuffer_sz (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer, 0, {SIZE});
+  jerry_property_descriptor_t {NAME}_prop_desc;
+  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
+  {NAME}_prop_desc.is_value_defined = true;
+  {NAME}_prop_desc.value = {NAME}_typedarray;
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_release_value ({NAME}_return_value);
+  jerry_release_value ({NAME}_prop_name);
+  jerry_release_value ({NAME}_buffer);
   jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
 '''
 

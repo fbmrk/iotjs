@@ -24,10 +24,12 @@ from module_generator.source_templates import *
 from module_generator.clang_translation_unit_visitor import ClangTranslationUnitVisitor
 
 
-def generate_c_values(node, jval, funcname, name, index='0'):
+def generate_c_values(node, jval, funcname, name, index='0',
+                      is_setter=False):
     buffers_to_free = []
 
     node_type = node.node_type
+    node_type_name = node_type.type_name
     node_declaration = node_type.get_declaration()
     node_declaration_kind = node_declaration.node_kind
 
@@ -35,17 +37,17 @@ def generate_c_values(node, jval, funcname, name, index='0'):
         node_declaration_kind.is_union_decl()):
         struct_decl = node_declaration.get_as_struct_or_union_decl()
         struct_name = struct_decl.name
-        struct_type = node_type.type_name
 
         if struct_name == '':
-            struct_name = struct_type + index
+            struct_name = node_type_name + index
         else:
             struct_name += index
 
 
         result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
 
-        result += "  {TYPE} {NAME};".format(TYPE=struct_type, NAME=name)
+        if not is_setter:
+            result += "  {TYPE} {NAME};".format(TYPE=node_type_name, NAME=name)
 
         for field in struct_decl.field_decls:
             member_name = struct_name + '_' + field.name
@@ -58,54 +60,70 @@ def generate_c_values(node, jval, funcname, name, index='0'):
 
             result += JS_GET_PROP.format(NAME=struct_name, MEM=field.name,
                                          OBJ=jval, GET_VAl=getval, STRUCT=name)
-
-            if node_declaration_kind.is_union_decl():
-                break
     elif node_type.is_pointer() or node_type.is_array():
         if node_type.is_pointer():
-            pointee_type, count = node_type.get_pointee_type()
+            pointee_type = node_type.get_pointee_type()
         else:
             # Array
-            pointee_type, count = node_type.get_array_type()
+            pointee_type = node_type.get_array_type()
+            size = node_type.get_array_size()
+        pointee_type_name = pointee_type.type_name
 
-        if pointee_type.is_char() and count == 1:
+        if pointee_type.is_char():
             check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                               FUNC=funcname)
-            get_type = JS_GET_STRING.format(NAME=name, JVAL=jval)
-            result = check_type + get_type
-        elif pointee_type.is_number() and count == 1:
-            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
-                                               JVAL=jval, FUNC=funcname)
-            get_type = JS_GET_TYPEDARRAY.format(TYPE=node_type.type_name,
+            if is_setter:
+                if node_type.is_pointer():
+                    get_type = JS_SET_CHAR_PTR.format(TYPE=pointee_type_name,
+                                                      NAME=name, JVAL=jval)
+                else:
+                    get_type = JS_SET_CHAR_ARR.format(NAME=name, JVAL=jval,
+                                                      SIZE=(size-1))
+            else:
+                get_type = JS_GET_STRING.format(TYPE=pointee_type_name,
                                                 NAME=name, JVAL=jval)
             result = check_type + get_type
+        elif pointee_type.is_number():
+            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
+                                               JVAL=jval, FUNC=funcname)
+            if is_setter:
+                get_type = JS_SET_TYPEDARRAY.format(TYPE=pointee_type_name,
+                                                    NAME=name, JVAL=jval)
+            else:
+                get_type = JS_GET_TYPEDARRAY.format(TYPE=pointee_type_name,
+                                                    NAME=name, JVAL=jval)
+                buffers_to_free.append(JS_WRITE_ARRAYBUFFER.format(NAME=name,
+                                                                   JVAL=jval))
+            result = check_type + get_type
 
-            buffers_to_free.append(JS_WRITE_ARRAYBUFFER.format(NAME=name,
-                                                               JVAL=jval))
         else:
-            result = JS_GET_UNSUPPORTED.format(TYPE=node_type.type_name,
-                                               NAME=name)
+            result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
     elif node_type.is_bool():
-        result = JS_GET_BOOL.format(NAME=name, JVAL=jval)
-    elif node_type.is_number():
+        if is_setter:
+            result = JS_SET_BOOL.format(NAME=name, JVAL=jval)
+        else:
+            result = JS_GET_BOOL.format(TYPE=node_type_name, NAME=name,
+                                        JVAL=jval)
+    elif node_type.is_number() or node_type.is_enum():
         check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
                                           FUNC=funcname)
-        get_type = JS_GET_NUM.format(TYPE=node_type.type_name, NAME=name,
-                                     JVAL=jval)
+        if is_setter:
+            get_type = JS_SET_NUM.format(NAME=name, JVAL=jval)
+        else:
+            get_type = JS_GET_NUM.format(TYPE=node_type_name, NAME=name,
+                                         JVAL=jval)
         result = check_type + get_type
     elif node_type.is_char():
         check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                           FUNC=funcname)
-        get_type = JS_GET_CHAR.format(NAME=name, JVAL=jval)
-        result = check_type + get_type
-    elif node_type.is_enum():
-        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
-                                          FUNC=funcname)
-        get_type = JS_GET_NUM.format(TYPE='int', NAME=name, JVAL=jval)
+        if is_setter:
+            get_type = JS_SET_CHAR.format(NAME=name, JVAL=jval)
+        else:
+            get_type = JS_GET_CHAR.format(TYPE=node_type_name, NAME=name,
+                                          JVAL=jval)
         result = check_type + get_type
     else:
-        result = JS_GET_UNSUPPORTED.format(TYPE=node_type.type_name,
-                                           NAME=name)
+        result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
 
     return result, buffers_to_free
 
@@ -139,13 +157,17 @@ def generate_js_value(node, cval, name):
 
             result += JS_SET_PROP.format(NAME=struct_name, MEM=field.name,
                                          OBJ=name, JVAL=member_js)
-    elif node_type.is_pointer():
-        pointee_type, count = node_type.get_pointee_type()
+    elif node_type.is_pointer() or node_type.is_array():
+        if node_type.is_pointer():
+            pointee_type = node_type.get_pointee_type()
+        else:
+            # Array
+            pointee_type = node_type.get_array_type()
         pointee_type_name = pointee_type.type_name
 
-        if pointee_type.is_char() and count == 1:
+        if pointee_type.is_char():
             result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
-        elif pointee_type.is_number() and count == 1:
+        elif pointee_type.is_number():
             array_type = TYPEDARRAY_TYPES[pointee_type_name]
             result = JS_CREATE_TYPEDARRAY.format(NAME=name, FROM=cval,
                                                  TYPE=pointee_type_name,
@@ -217,13 +239,8 @@ def generate_getter_setter(var):
     name = var.name
     get_result = generate_js_value(var, name, 'ret_val')
     set_result, buffers = generate_c_values(var, 'args_p[0]', name + '_setter',
-                                            name + '_val')
+                                            name, is_setter=True)
 
-    if buffers:
-        set_result += '  jerry_release_value ({}_buffer);\n'.format(name +
-                                                                    '_val')
-
-    set_result += '  {} = {};\n'.format(name, name + '_val')
     set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
 
     getter = JS_EXT_FUNC.format(NAME=name + '_getter', BODY=get_result)
@@ -285,6 +302,16 @@ def generate_c_source(header, api_headers, dirname, args):
                 result = generate_js_value(var, var.name, var.name + '_js')
                 init_function.append(result)
                 init_function.append(INIT_REGIST_CONST.format(NAME=var.name))
+            elif var.node_type.is_array() and var.node_type.get_array_type().is_number():
+                array_type = var.node_type.get_array_type()
+                type_name = array_type.type_name
+                size = var.node_type.get_array_size()
+                array_type = TYPEDARRAY_TYPES[type_name]
+                result = INIT_REGIST_NUM_ARR.format(NAME=var.name,
+                                                    TYPE=type_name,
+                                                    SIZE=size,
+                                                    ARRAY_TYPE=array_type)
+                init_function.append(result)
             else:
                 getter, setter = generate_getter_setter(var)
                 generated_source.append(getter)

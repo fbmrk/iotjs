@@ -107,7 +107,12 @@ class ClangASTNodeType:
     def get_array_type(self):
         assert self.is_array()
 
-        return ClangASTNodeType.visit_array(self)
+        return ClangASTNodeType(self._canonical_type.element_type)
+
+    def get_array_size(self):
+        assert self.is_array()
+
+        return self._canonical_type.element_count
 
     # Resolves all pointers recursively and returns with the underlying final pointee.
     @staticmethod
@@ -122,7 +127,7 @@ class ClangASTNodeType:
     def get_pointee_type(self):
         assert self.is_pointer()
 
-        return ClangASTNodeType.visit_pointer(self)
+        return ClangASTNodeType(self._canonical_type.get_pointee())
 
     def get_declaration(self):
         decl = self._canonical_type.get_declaration()
