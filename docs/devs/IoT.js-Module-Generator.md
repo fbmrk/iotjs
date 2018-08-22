@@ -81,7 +81,10 @@ console.log(c_lib.C); // print 2
 
 #### Macros:
 
-C macros also work like constants. You can read the value of the macro from a property, but you can not modify it. There are three supported types of C macros. If the macro defines a character literal, like `#define C 'c'`. If the macro defines a string literal, like `#define STR "str"`. If the macro defines a numeric literal, or contains some kind of operation, but the result is a number, like `#defines ZERO 0` or `#define TWO 1 + 1`. It also works, if the macro contains other macro identifiers.
+C macros also work like constants. You can read the value of the macro from a property, but you can not modify it. There are three supported C macro types.
+* If the macro defines a character literal, like `#define C 'c'`.
+* If the macro defines a string literal, like `#define STR "str"`.
+* If the macro defines a numeric literal, or contains some kind of operation, but the result is a number, like `#defines ZERO 0` or `#define TWO 1 + 1`. It also works, if the macro contains other macro identifiers.
 
 C header:
 ```c
@@ -182,6 +185,9 @@ var a = c_lib.f(false);
 ```
 
 ##### `struct/union`
+
+If there is a global struct/union variable, like `s` below, and it has a member, like `i`, you can get its value directly, for example `console.log(c_lib.s.i)`, but you can not set its value directly, so you need to set the struct/union variable through an object.
+
 ```c
 typedef struct {int i; char c;} S;
 typedef union {int i; char c;} U;
@@ -192,6 +198,7 @@ U g(U);
 ```
 ```javascript
 // c_lib.s.i = 42; does NOT work
+c_lib.s = {i:42};
 c_lib.s = {i:42, c:'a'};
 c_lib.u = {i:42};
 c_lib.u = {c:'a'};
@@ -215,6 +222,9 @@ var g = c_lib.g('1234');
 ```
 
 ##### `int*/int[]`
+
+If there is global pointer to a number, its value could be `null` or a `TypedArray`. If there is an array of numbers, it will be a `TypedArray` in the JS environment, and you can set the values by indexing.
+
 ```c
 int * i_ptr;
 int i_arr[5];
