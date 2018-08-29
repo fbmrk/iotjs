@@ -34,6 +34,9 @@ char c_arr[5];
 int* i_ptr;
 int i_arr[5];
 
+typedef int (func)(void);
+typedef int (*func_ptr)(void);
+
 void f_void (void);
 int f_int (int);
 char f_char (char);
@@ -47,5 +50,7 @@ char* f_char_ptr (char*);
 char* f_char_arr (char[5]);
 int* f_int_ptr (int*);
 int* f_int_arr (int[5]);
+int f_func (func);
+int f_func_ptr (func_ptr);
 
 #endif

@@ -64,3 +64,13 @@ int* f_int_arr (int a[5])
 {
   return a;
 }
+
+int f_func (func f)
+{
+  return f();
+}
+
+int f_func_ptr (func_ptr f)
+{
+  return f();
+}

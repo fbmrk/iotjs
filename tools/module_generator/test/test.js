@@ -138,3 +138,9 @@ assert.equal(lib.f_int_ptr(null), null);
 assert.equal(lib.f_int_ptr(i_ptr)[0], 42);
 assert.equal(lib.f_int_arr(null), null);
 assert.equal(lib.f_int_arr(i_ptr)[0], 42);
+assert.equal(lib.f_func(function () {
+  return 42;
+}), 42);
+assert.equal(lib.f_func_ptr(function () {
+  return 42;
+}), 42);
