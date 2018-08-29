@@ -129,6 +129,26 @@ JS_GET_TYPEDARRAY = '''
   }}
 '''
 
+# Function to C function
+JS_CALL_FUNCTION = '''
+  {RET_TYPE} {NAME} ({PARAMS})
+  {{
+    jerry_value_t args[{LEN}];
+    {CREATE_VAL}
+    jerry_value_t this_val = jerry_create_undefined();
+    jerry_value_t result = jerry_call_function({JVAL}, this_val, args, {LEN});
+    {RESULT}
+    jerry_release_value(result);
+    jerry_release_value(this_val);
+
+    for (int i = 0; i < {LEN}; i++)
+    {{
+      jerry_release_value(args[i]);
+    }}
+    return {RET};
+  }}
+'''
+
 
 # Templates for make a jerry_value_t variable
 

@@ -91,6 +91,9 @@ class ClangASTNodeType:
         return (self._canonical_type.kind == clang.cindex.TypeKind.CONSTANTARRAY or
                 self._canonical_type.kind == clang.cindex.TypeKind.INCOMPLETEARRAY)
 
+    def is_func(self):
+        return self._canonical_type.kind == clang.cindex.TypeKind.FUNCTIONPROTO
+
     def is_const(self):
         return self._canonical_type.is_const_qualified()
 
@@ -160,6 +163,9 @@ class ClangASTNode:
                 self.node_kind.is_union_decl())
         return ClangStructOrUnionDecl(self._cursor)
 
+    def get_as_function(self):
+        return ClangFunctionDecl(self._cursor)
+
 
 # This class represents enum declarations in libclang.
 class ClangEnumDecl(ClangASTNode):
@@ -181,10 +187,18 @@ class ClangEnumDecl(ClangASTNode):
 class ClangFunctionDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
-        self._return_type = ClangASTNodeType(cursor.type.get_result())
+
+        if self.node_type.is_pointer():
+            self._return_type = ClangASTNodeType(cursor.type.get_canonical().get_pointee().get_result())
+        else:
+            self._return_type = ClangASTNodeType(cursor.type.get_canonical().get_result())
 
         self._parm_decls = []
-        function_children = list(cursor.get_children())
+        if cursor.type.kind == clang.cindex.TypeKind.TYPEDEF:
+            function_children = list(cursor.type.get_declaration().get_children())
+        else:
+            function_children = list(cursor.get_children())
+
         for child in function_children:
             if child.kind == clang.cindex.CursorKind.PARM_DECL:
                 self._parm_decls.append(ClangFunctionParameterDecl(child))

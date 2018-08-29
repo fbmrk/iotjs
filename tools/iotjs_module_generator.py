@@ -21,14 +21,18 @@ from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
 from module_generator.source_templates import *
-from module_generator.clang_translation_unit_visitor import ClangTranslationUnitVisitor
+from module_generator.clang_translation_unit_visitor import *
 
 
 def generate_c_values(node, jval, funcname, name, index='0',
-                      is_setter=False):
+                      is_setter=False, check_type=True):
+    result = ''
     buffers_to_free = []
 
-    node_type = node.node_type
+    if isinstance(node, ClangASTNode):
+        node_type = node.node_type
+    elif isinstance(node, ClangASTNodeType):
+        node_type = node
     node_type_name = node_type.type_name
     node_declaration = node_type.get_declaration()
     node_declaration_kind = node_declaration.node_kind
@@ -43,8 +47,9 @@ def generate_c_values(node, jval, funcname, name, index='0',
         else:
             struct_name += index
 
-
-        result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval, FUNC=funcname)
+        if check_type:
+            result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval,
+                                          FUNC=funcname)
 
         if not is_setter:
             result += "  {TYPE} {NAME};".format(TYPE=node_type_name, NAME=name)
@@ -70,32 +75,36 @@ def generate_c_values(node, jval, funcname, name, index='0',
         pointee_type_name = pointee_type.type_name
 
         if pointee_type.is_char():
-            check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+            if check_type:
+                result = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
                                               FUNC=funcname)
             if is_setter:
                 if node_type.is_pointer():
-                    get_type = JS_SET_CHAR_PTR.format(TYPE=pointee_type_name,
+                    result += JS_SET_CHAR_PTR.format(TYPE=pointee_type_name,
                                                       NAME=name, JVAL=jval)
                 else:
-                    get_type = JS_SET_CHAR_ARR.format(NAME=name, JVAL=jval,
+                    result += JS_SET_CHAR_ARR.format(NAME=name, JVAL=jval,
                                                       SIZE=(size-1))
             else:
-                get_type = JS_GET_STRING.format(TYPE=pointee_type_name,
+                result += JS_GET_STRING.format(TYPE=pointee_type_name,
                                                 NAME=name, JVAL=jval)
-            result = check_type + get_type
         elif pointee_type.is_number():
-            check_type = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
-                                               JVAL=jval, FUNC=funcname)
+            if check_type:
+                result = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
+                                                   JVAL=jval, FUNC=funcname)
             if is_setter:
-                get_type = JS_SET_TYPEDARRAY.format(TYPE=pointee_type_name,
+                result += JS_SET_TYPEDARRAY.format(TYPE=pointee_type_name,
                                                     NAME=name, JVAL=jval)
             else:
-                get_type = JS_GET_TYPEDARRAY.format(TYPE=pointee_type_name,
+                result += JS_GET_TYPEDARRAY.format(TYPE=pointee_type_name,
                                                     NAME=name, JVAL=jval)
                 buffers_to_free.append(JS_WRITE_ARRAYBUFFER.format(NAME=name,
                                                                    JVAL=jval))
-            result = check_type + get_type
-
+        elif pointee_type.is_func():
+            if check_type:
+                result = JS_CHECK_TYPE.format(TYPE='function', JVAL=jval,
+                                              FUNC=funcname)
+            result += create_c_function(node, jval, funcname, name)
         else:
             result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
     elif node_type.is_bool():
@@ -105,27 +114,60 @@ def generate_c_values(node, jval, funcname, name, index='0',
             result = JS_GET_BOOL.format(TYPE=node_type_name, NAME=name,
                                         JVAL=jval)
     elif node_type.is_number() or node_type.is_enum():
-        check_type = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
-                                          FUNC=funcname)
+        if check_type:
+            result = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
+                                              FUNC=funcname)
         if is_setter:
-            get_type = JS_SET_NUM.format(NAME=name, JVAL=jval)
+            result += JS_SET_NUM.format(NAME=name, JVAL=jval)
         else:
-            get_type = JS_GET_NUM.format(TYPE=node_type_name, NAME=name,
+            result += JS_GET_NUM.format(TYPE=node_type_name, NAME=name,
                                          JVAL=jval)
-        result = check_type + get_type
     elif node_type.is_char():
-        check_type = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
-                                          FUNC=funcname)
+        if check_type:
+            result = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
+                                              FUNC=funcname)
         if is_setter:
-            get_type = JS_SET_CHAR.format(NAME=name, JVAL=jval)
+            result += JS_SET_CHAR.format(NAME=name, JVAL=jval)
         else:
-            get_type = JS_GET_CHAR.format(TYPE=node_type_name, NAME=name,
+            result += JS_GET_CHAR.format(TYPE=node_type_name, NAME=name,
                                           JVAL=jval)
-        result = check_type + get_type
+    elif node_type.is_func():
+        if check_type:
+            result = JS_CHECK_TYPE.format(TYPE='function', JVAL=jval,
+                                          FUNC=funcname)
+        result += create_c_function(node, jval, funcname, name)
     else:
         result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
 
     return result, buffers_to_free
+
+
+def create_c_function(node, jval, funcname, name):
+    func = node.get_as_function()
+    params = []
+    create_val = []
+
+    for index, param in enumerate(func.params):
+        index = str(index)
+        param_name = ' p_' + index
+        arg_name = ' arg_'+ index
+        params.append(param.node_type.type_name + param_name)
+        create_val.append(generate_js_value(param, param_name, arg_name))
+        create_val.append('    args[' + index + '] =' + arg_name + ';')
+
+    if func.return_type.type_name == 'void':
+        res= ''
+        ret = ''
+    else:
+        res, _ = generate_c_values(func.return_type, 'result', funcname, 'ret',
+                                   check_type=False)
+        ret = 'ret'
+
+    return JS_CALL_FUNCTION.format(RET_TYPE=func.return_type.type_name,
+                                   NAME=name, PARAMS=(', ').join(params),
+                                   LEN=len(func.params),
+                                   CREATE_VAL=('\n').join(create_val),
+                                   JVAL=jval, RESULT=res, RET=ret)
 
 
 def generate_js_value(node, cval, name):
@@ -280,7 +322,7 @@ def generate_c_source(header, api_headers, dirname, args):
     visitor = ClangTranslationUnitVisitor(header, api_headers, visit_args)
     visitor.visit()
 
-    generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
+    generated_source = [INCLUDE.format(INDENT='    ', HEADER=dirname + '_js_wrapper.h')]
 
     init_function = []
 
