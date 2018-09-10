@@ -423,6 +423,11 @@ def generate_module(args):
     with open(header_file, 'w') as h:
         h.write(header_text)
 
+    if args.check or args.check_all:
+        checker = ClangTranslationUnitChecker(header_file, api_headers, [], args.check_all)
+        checker.check()
+        return
+
     c_file = generate_c_source(header_file, api_headers, dirname, args)
 
     with open(fs.join(output_dir, dirname + '_js_wrapper.c'), 'w') as c:
@@ -466,6 +471,12 @@ if __name__ == '__main__':
         help='Add path to include file.')
     parser.add_argument('--includes', type=argparse.FileType('r'),
         help='A file, which contains paths to include files.')
+
+    parser.add_argument('--check', action='store_true', default=False,
+        help='Check the C API headers. Print the unsupported parts.')
+
+    parser.add_argument('--check-all', action='store_true', default=False,
+        help='Check the C API headers.')
 
 
     args = parser.parse_args()
