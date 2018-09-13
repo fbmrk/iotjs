@@ -29,15 +29,15 @@ class ClangASTNodeKind:
 class ClangASTNodeType:
     char_type_kinds = [
         clang.cindex.TypeKind.CHAR_U,
-        clang.cindex.TypeKind.UCHAR,
         clang.cindex.TypeKind.CHAR16,
         clang.cindex.TypeKind.CHAR32,
         clang.cindex.TypeKind.CHAR_S,
-        clang.cindex.TypeKind.SCHAR,
         clang.cindex.TypeKind.WCHAR
     ]
 
     number_type_kinds = [
+        clang.cindex.TypeKind.UCHAR,
+        clang.cindex.TypeKind.SCHAR,
         clang.cindex.TypeKind.USHORT,
         clang.cindex.TypeKind.UINT,
         clang.cindex.TypeKind.ULONG,

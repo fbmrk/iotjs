@@ -33,7 +33,10 @@ def generate_c_values(node, jval, funcname, name, index='0',
         node_type = node.node_type
     elif isinstance(node, ClangASTNodeType):
         node_type = node
-    node_type_name = node_type.type_name
+    if node_type.is_const():
+        node_type_name = node_type.type_name.replace('const ', '')
+    else:
+        node_type_name = node_type.type_name
     node_declaration = node_type.get_declaration()
     node_declaration_kind = node_declaration.node_kind
 
@@ -72,7 +75,10 @@ def generate_c_values(node, jval, funcname, name, index='0',
             # Array
             pointee_type = node_type.get_array_type()
             size = node_type.get_array_size()
-        pointee_type_name = pointee_type.type_name
+        if pointee_type.is_const():
+            pointee_type_name = pointee_type.type_name.replace('const ', '')
+        else:
+            pointee_type_name = pointee_type.type_name
 
         if pointee_type.is_char():
             if check_type:
