@@ -130,23 +130,29 @@ JS_GET_TYPEDARRAY = '''
 '''
 
 # Function to C function
-JS_CALL_FUNCTION = '''
-  {RET_TYPE} {NAME} ({PARAMS})
-  {{
-    jerry_value_t args[{LEN}];
-    {CREATE_VAL}
-    jerry_value_t this_val = jerry_create_undefined();
-    jerry_value_t result = jerry_call_function({JVAL}, this_val, args, {LEN});
-    {RESULT}
-    jerry_release_value(result);
-    jerry_release_value(this_val);
+JS_CB_FUNCTION = '''
+jerry_value_t {FUNC}_{NAME}_js;
+{RET_TYPE} {FUNC}_{NAME} ({PARAMS})
+{{
+  jerry_value_t args[{LEN}];
+  {CREATE_VAL}
+  jerry_value_t this_val = jerry_create_undefined();
+  jerry_value_t result = jerry_call_function({FUNC}_{NAME}_js, this_val, args, {LEN});
+  {RESULT}
+  jerry_release_value(result);
+  jerry_release_value(this_val);
 
-    for (int i = 0; i < {LEN}; i++)
-    {{
-      jerry_release_value(args[i]);
-    }}
-    return {RET};
+  for (int i = 0; i < {LEN}; i++)
+  {{
+    jerry_release_value(args[i]);
   }}
+  return {RET};
+}}
+'''
+
+JS_GET_FUNCTION = '''
+  {FUNC}_{NAME}_js = {JVAL};
+  void* {NAME} = {FUNC}_{NAME};
 '''
 
 

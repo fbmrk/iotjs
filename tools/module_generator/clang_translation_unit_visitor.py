@@ -1,56 +1,63 @@
 #!/usr/bin/env python
 
-# TODO: License, documentation etc.
+# Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import clang.cindex
+from clang.cindex import Config, Index, conf, CursorKind, TypeKind
 
 
-# This class is a wrapper for the CursorKind type in the libclang python-bindings.
-# See the definition here:
-# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L640
+# This class is a wrapper for the CursorKind type.
 class ClangASTNodeKind:
     def __init__(self, cursor_kind):
         self._cursor_kind = cursor_kind
 
     def is_struct_decl(self):
-        return self._cursor_kind == clang.cindex.CursorKind.STRUCT_DECL
+        return self._cursor_kind == CursorKind.STRUCT_DECL
 
     def is_union_decl(self):
-        return self._cursor_kind == clang.cindex.CursorKind.UNION_DECL
+        return self._cursor_kind == CursorKind.UNION_DECL
 
     def is_function_decl(self):
-        return self._cursor_kind == clang.cindex.CursorKind.FUNCTION_DECL
+        return self._cursor_kind == CursorKind.FUNCTION_DECL
 
 
-# This class is a wrapper for the TypeKind and Type classes in the libclang python-bindings.
-# See the definitions here:
-# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L1936
-# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L2064
+# This class is a wrapper for the TypeKind and Type classes.
 class ClangASTNodeType:
     char_type_kinds = [
-        clang.cindex.TypeKind.CHAR_U,
-        clang.cindex.TypeKind.CHAR16,
-        clang.cindex.TypeKind.CHAR32,
-        clang.cindex.TypeKind.CHAR_S,
-        clang.cindex.TypeKind.WCHAR
+        TypeKind.CHAR_U,
+        TypeKind.CHAR16,
+        TypeKind.CHAR32,
+        TypeKind.CHAR_S,
+        TypeKind.WCHAR
     ]
 
     number_type_kinds = [
-        clang.cindex.TypeKind.UCHAR,
-        clang.cindex.TypeKind.SCHAR,
-        clang.cindex.TypeKind.USHORT,
-        clang.cindex.TypeKind.UINT,
-        clang.cindex.TypeKind.ULONG,
-        clang.cindex.TypeKind.ULONGLONG,
-        clang.cindex.TypeKind.UINT128,
-        clang.cindex.TypeKind.SHORT,
-        clang.cindex.TypeKind.INT,
-        clang.cindex.TypeKind.LONG,
-        clang.cindex.TypeKind.LONGLONG,
-        clang.cindex.TypeKind.INT128,
-        clang.cindex.TypeKind.FLOAT,
-        clang.cindex.TypeKind.DOUBLE,
-        clang.cindex.TypeKind.LONGDOUBLE
+        TypeKind.UCHAR,
+        TypeKind.SCHAR,
+        TypeKind.USHORT,
+        TypeKind.UINT,
+        TypeKind.ULONG,
+        TypeKind.ULONGLONG,
+        TypeKind.UINT128,
+        TypeKind.SHORT,
+        TypeKind.INT,
+        TypeKind.LONG,
+        TypeKind.LONGLONG,
+        TypeKind.INT128,
+        TypeKind.FLOAT,
+        TypeKind.DOUBLE,
+        TypeKind.LONGDOUBLE
     ]
 
     def __init__(self, clang_type):
@@ -67,7 +74,7 @@ class ClangASTNodeType:
         return self._canonical_type.spelling
 
     def is_bool(self):
-        return self._canonical_type.kind == clang.cindex.TypeKind.BOOL
+        return self._canonical_type.kind == TypeKind.BOOL
 
     def is_char(self):
         return self._canonical_type.kind in ClangASTNodeType.char_type_kinds
@@ -76,60 +83,38 @@ class ClangASTNodeType:
         return self._canonical_type.kind in ClangASTNodeType.number_type_kinds
 
     def is_enum(self):
-        return self._canonical_type.kind == clang.cindex.TypeKind.ENUM
+        return self._canonical_type.kind == TypeKind.ENUM
 
     def is_void(self):
-        return self._canonical_type.kind == clang.cindex.TypeKind.VOID
+        return self._canonical_type.kind == TypeKind.VOID
 
     def is_builtin(self):
         return (self.is_bool() or self.is_char() or self.is_number())
 
     def is_pointer(self):
-        return self._canonical_type.kind == clang.cindex.TypeKind.POINTER
+        return self._canonical_type.kind == TypeKind.POINTER
 
     def is_array(self):
-        return (self._canonical_type.kind == clang.cindex.TypeKind.CONSTANTARRAY or
-                self._canonical_type.kind == clang.cindex.TypeKind.INCOMPLETEARRAY)
+        return (self._canonical_type.kind == TypeKind.CONSTANTARRAY or
+                self._canonical_type.kind == TypeKind.INCOMPLETEARRAY)
 
     def is_func(self):
-        return self._canonical_type.kind == clang.cindex.TypeKind.FUNCTIONPROTO
+        return (self._canonical_type.kind == TypeKind.FUNCTIONPROTO or
+                self._canonical_type.kind == TypeKind.FUNCTIONNOPROTO)
 
     def is_const(self):
         return self._canonical_type.is_const_qualified()
 
-    # Resolves all array dimensions recursively and returns with the underlying element type.
-    @staticmethod
-    def visit_array(clang_ast_type):
-        if clang_ast_type.is_array():
-            clang_ast_type = ClangASTNodeType(clang_ast_type._canonical_type.element_type)
-            element_type, count = ClangASTNodeType.visit_array(clang_ast_type)
-            return element_type, count + 1
-        else:
-            return clang_ast_type, 0
-
     def get_array_type(self):
         assert self.is_array()
-
         return ClangASTNodeType(self._canonical_type.element_type)
 
     def get_array_size(self):
         assert self.is_array()
-
         return self._canonical_type.element_count
-
-    # Resolves all pointers recursively and returns with the underlying final pointee.
-    @staticmethod
-    def visit_pointer(clang_ast_type):
-        if clang_ast_type.is_pointer():
-            clang_ast_type = ClangASTNodeType(clang_ast_type._canonical_type.get_pointee())
-            pointee_type, count = ClangASTNodeType.visit_pointer(clang_ast_type)
-            return pointee_type, count + 1
-        else:
-            return clang_ast_type, 0
 
     def get_pointee_type(self):
         assert self.is_pointer()
-
         return ClangASTNodeType(self._canonical_type.get_pointee())
 
     def get_declaration(self):
@@ -137,9 +122,7 @@ class ClangASTNodeType:
         return ClangASTNode(decl)
 
 
-# This class is a wrapper for the Cursor type in the libclang python-bindings.
-# See the definition here:
-# https://github.com/llvm-mirror/clang/blob/26cac19a0d622afc91cd52a002921074bccc6a27/bindings/python/clang/cindex.py#L1394
+# This class is a wrapper for the Cursor type.
 class ClangASTNode:
     def __init__(self, cursor):
         self._cursor = cursor
@@ -175,7 +158,7 @@ class ClangEnumDecl(ClangASTNode):
 
         children = list(cursor.get_children())
         for child in children:
-            if child.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
+            if child.kind == CursorKind.ENUM_CONSTANT_DECL:
                 self._enum_constant_decls.append(child.spelling)
 
     @property
@@ -189,18 +172,20 @@ class ClangFunctionDecl(ClangASTNode):
         ClangASTNode.__init__(self, cursor)
 
         if self.node_type.is_pointer():
-            self._return_type = ClangASTNodeType(cursor.type.get_canonical().get_pointee().get_result())
+            return_type = cursor.type.get_canonical().get_pointee().get_result()
         else:
-            self._return_type = ClangASTNodeType(cursor.type.get_canonical().get_result())
+            return_type = cursor.type.get_canonical().get_result()
+
+        self._return_type = ClangASTNodeType(return_type)
 
         self._parm_decls = []
-        if cursor.type.kind == clang.cindex.TypeKind.TYPEDEF:
-            function_children = list(cursor.type.get_declaration().get_children())
+        if cursor.type.kind == TypeKind.TYPEDEF:
+            function_children = cursor.type.get_declaration().get_children()
         else:
-            function_children = list(cursor.get_children())
+            function_children = cursor.get_children()
 
         for child in function_children:
-            if child.kind == clang.cindex.CursorKind.PARM_DECL:
+            if child.kind == CursorKind.PARM_DECL:
                 self._parm_decls.append(ClangFunctionParameterDecl(child))
 
     @property
@@ -218,7 +203,7 @@ class ClangFunctionParameterDecl(ClangASTNode):
         ClangASTNode.__init__(self, cursor)
 
 
-# This class represents funcion/union declarations in libclang.
+# This class represents struct/union declarations in libclang.
 class ClangStructOrUnionDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
@@ -226,7 +211,7 @@ class ClangStructOrUnionDecl(ClangASTNode):
         self._field_decls = []
         children = list(cursor.get_children())
         for child in children:
-            if child.kind == clang.cindex.CursorKind.FIELD_DECL:
+            if child.kind == CursorKind.FIELD_DECL:
                 self._field_decls.append(ClangFieldDecl(child))
 
     @property
@@ -235,7 +220,7 @@ class ClangStructOrUnionDecl(ClangASTNode):
 
 
 
-# This class represents funcion/union/class field declarations in libclang.
+# This class represents struct/union/class field declarations in libclang.
 class ClangFieldDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
@@ -280,10 +265,11 @@ class ClangMacroDef(ClangASTNode):
                 return True
         return False
 
+    # macro contains only number literals and punctuations
     def is_number(self):
-        if (self.content and # has content
-            not [x for x in self.token_kinds[1:] if x in [1, 2, 4]] and # macro contains only literals and punctuations
-            "'" not in self.content and '"' not in self.content): # there are no char and string literals
+        if (self.content and
+            not [x for x in self.token_kinds[1:] if x in [1, 2, 4]] and
+            "'" not in self.content and '"' not in self.content):
             return True
         return False
 
@@ -291,49 +277,47 @@ class ClangMacroDef(ClangASTNode):
         return self.is_char() or self.is_string() or self.is_number()
 
     def is_function(self):
-        return clang.cindex.conf.lib.clang_Cursor_isMacroFunctionLike(self._cursor)
+        return conf.lib.clang_Cursor_isMacroFunctionLike(self._cursor)
 
 
-# This class responsible for initializing and visiting the AST provided by libclang.
+# This class responsible for initializing and visiting
+# the AST provided by libclang.
 class ClangTranslationUnitVisitor:
     def __init__(self, header, api_headers, args):
         # TODO: Avoid hard-coding paths and args in general.
-        clang.cindex.Config.set_library_file('libclang-5.0.so.1')
-        index = clang.cindex.Index.create()
+        Config.set_library_file('libclang-6.0.so.1')
+        index = Index.create()
 
         # TODO: C++ needs a different configuration (-x C++).
         self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, args + self.clang_args, options=1)
-
+        self.translation_unit = index.parse(header, args + self.clang_args,
+                                            options=1)
         self.api_headers = api_headers
-
         self.enum_constant_decls = []
         self.function_decls = []
         self.var_decls = []
         self.macro_defs = []
 
     def visit(self):
-        children = list(self.translation_unit.cursor.get_children())
+        children = self.translation_unit.cursor.get_children()
 
         for cursor in children:
-            if cursor.kind == clang.cindex.CursorKind.ENUM_DECL:
-                self.enum_constant_decls.append(ClangEnumDecl(cursor))
-
-            elif (cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL and
-                cursor.location.file != None and
+            if (cursor.location.file != None and
                 cursor.location.file.name in self.api_headers):
-                self.function_decls.append(ClangFunctionDecl(cursor))
 
-            elif (cursor.kind == clang.cindex.CursorKind.VAR_DECL and
-                cursor.location.file != None and
-                cursor.location.file.name in self.api_headers):
-                self.var_decls.append(ClangVarDecl(cursor))
+                if cursor.kind == CursorKind.ENUM_DECL:
+                    self.enum_constant_decls.append(ClangEnumDecl(cursor))
 
-            elif (cursor.kind == clang.cindex.CursorKind.MACRO_DEFINITION and
-                cursor.location.file != None and
-                cursor.location.file.name in self.api_headers):
-                self.macro_defs.append(ClangMacroDef(cursor))
+                elif cursor.kind == CursorKind.FUNCTION_DECL:
+                    self.function_decls.append(ClangFunctionDecl(cursor))
 
+                elif cursor.kind == CursorKind.VAR_DECL:
+                    self.var_decls.append(ClangVarDecl(cursor))
+
+                elif cursor.kind == CursorKind.MACRO_DEFINITION:
+                    self.macro_defs.append(ClangMacroDef(cursor))
+
+        # Resolve other macros in macro definition
         for first in self.macro_defs:
             for second in self.macro_defs:
                 for i, token in enumerate(second.tokens):
@@ -350,48 +334,48 @@ class ClangTranslationUnitChecker:
 
     valid_types = [
     #void
-    clang.cindex.TypeKind.VOID,
+    TypeKind.VOID,
     # char
-    clang.cindex.TypeKind.CHAR_U, # valid pointer types
-    clang.cindex.TypeKind.UCHAR,
-    clang.cindex.TypeKind.CHAR16,
-    clang.cindex.TypeKind.CHAR32,
-    clang.cindex.TypeKind.CHAR_S,
-    clang.cindex.TypeKind.SCHAR,
-    clang.cindex.TypeKind.WCHAR,
+    TypeKind.CHAR_U, # valid pointer types
+    TypeKind.UCHAR,
+    TypeKind.CHAR16,
+    TypeKind.CHAR32,
+    TypeKind.CHAR_S,
+    TypeKind.SCHAR,
+    TypeKind.WCHAR,
     # number
-    clang.cindex.TypeKind.USHORT,
-    clang.cindex.TypeKind.UINT,
-    clang.cindex.TypeKind.ULONG,
-    clang.cindex.TypeKind.ULONGLONG,
-    clang.cindex.TypeKind.UINT128,
-    clang.cindex.TypeKind.SHORT,
-    clang.cindex.TypeKind.INT,
-    clang.cindex.TypeKind.LONG,
-    clang.cindex.TypeKind.LONGLONG,
-    clang.cindex.TypeKind.INT128,
-    clang.cindex.TypeKind.FLOAT,
-    clang.cindex.TypeKind.DOUBLE,
-    clang.cindex.TypeKind.LONGDOUBLE, # valid pointer types end
+    TypeKind.USHORT,
+    TypeKind.UINT,
+    TypeKind.ULONG,
+    TypeKind.ULONGLONG,
+    TypeKind.UINT128,
+    TypeKind.SHORT,
+    TypeKind.INT,
+    TypeKind.LONG,
+    TypeKind.LONGLONG,
+    TypeKind.INT128,
+    TypeKind.FLOAT,
+    TypeKind.DOUBLE,
+    TypeKind.LONGDOUBLE, # valid pointer types end
     # enum
-    clang.cindex.TypeKind.ENUM,
+    TypeKind.ENUM,
     # _Bool
-    clang.cindex.TypeKind.BOOL
+    TypeKind.BOOL
     ]
 
     function_types = [
-    clang.cindex.TypeKind.FUNCTIONNOPROTO,
-    clang.cindex.TypeKind.FUNCTIONPROTO
+    TypeKind.FUNCTIONNOPROTO,
+    TypeKind.FUNCTIONPROTO
     ]
 
-    def __init__(self, header, api_headers, args, check_all):
+    def __init__(self, header, api_headers, check_all):
         # TODO: Avoid hard-coding paths and args in general.
-        clang.cindex.Config.set_library_file('libclang-5.0.so.1')
-        index = clang.cindex.Index.create()
+        Config.set_library_file('libclang-5.0.so.1')
+        index = Index.create()
 
         # TODO: C++ needs a different configuration (-x C++).
         self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, args + self.clang_args, options=1)
+        self.translation_unit = index.parse(header, self.clang_args, options=1)
 
         self.api_headers = api_headers
         self.check_all = check_all
@@ -405,7 +389,8 @@ class ClangTranslationUnitChecker:
                     if (c.location.file != None and
                         c.location.file.name in self.api_headers)]
 
-        macros = [ClangMacroDef(macro) for macro in children if macro.kind == clang.cindex.CursorKind.MACRO_DEFINITION]
+        macros = [ClangMacroDef(macro) for macro in children
+                  if macro.kind == CursorKind.MACRO_DEFINITION]
 
         for first in macros:
             for second in macros:
@@ -434,35 +419,39 @@ class ClangTranslationUnitChecker:
             location = (cursor.location.file.name +
                         ':' + str(cursor.location.line) +
                         ':' + str(cursor.location.column) + '\n')
-            if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+            if cursor.kind == CursorKind.FUNCTION_DECL:
                 is_ok, msg = self.check_func(cursor)
                 if not is_ok:
                     print (self.WARN + 'Unsupported function' + self.ENDC + ': '
                            + cursor.spelling + '() ' + '\nat ' + location + msg)
                 elif self.check_all:
-                    print (self.OK + 'Supported function' + self.ENDC+ ': ' +
+                    print (self.OK + 'Supported function' + self.ENDC + ': ' +
                            cursor.spelling + '() ' + '\nat ' + location + msg)
-            elif cursor.kind == clang.cindex.CursorKind.VAR_DECL:
-                if cursor.type.get_canonical().kind == clang.cindex.TypeKind.RECORD:
-                    is_ok, msg = self.check_record(cursor.type.get_canonical().get_declaration())
+            elif cursor.kind == CursorKind.VAR_DECL:
+                if cursor.type.get_canonical().kind == TypeKind.RECORD:
+                    cursor_type = cursor.type.get_canonical().get_declaration()
+                    is_ok, msg = self.check_record(cursor_type)
                 else:
                     is_ok = self.check_type(cursor.type)
 
                 if not is_ok:
-                    print (self.WARN + 'Unsupported variable' + self.ENDC+ ': ' +
-                           cursor.type.spelling + ' ' + cursor.spelling + '\nat ' + location + msg)
+                    print (self.WARN + 'Unsupported variable' + self.ENDC + ': '
+                           + cursor.type.spelling + ' ' + cursor.spelling +
+                           '\nat ' + location + msg)
                 elif self.check_all:
-                    print (self.OK + 'Supported variable' + self.ENDC+ ': ' +
-                           cursor.type.spelling + ' ' + cursor.spelling + '\nat ' + location + msg)
+                    print (self.OK + 'Supported variable' + self.ENDC + ': ' +
+                           cursor.type.spelling + ' ' + cursor.spelling +
+                           '\nat ' + location + msg)
 
     def check_type(self, cursor_type):
-        if cursor_type.get_canonical().kind == clang.cindex.TypeKind.POINTER:
-            if cursor_type.get_canonical().get_pointee().kind not in ClangTranslationUnitChecker.valid_types[1:21]:
+        cursor_type = cursor_type.get_canonical()
+        if cursor_type.kind == TypeKind.POINTER:
+            if cursor_type.get_pointee().kind not in self.valid_types[1:21]:
                 return False
-        elif cursor_type.get_canonical().kind == clang.cindex.TypeKind.CONSTANTARRAY:
-            if cursor_type.get_canonical().element_type.kind not in ClangTranslationUnitChecker.valid_types[1:21]:
+        elif cursor_type.kind == TypeKind.CONSTANTARRAY:
+            if cursor_type.element_type.kind not in self.valid_types[1:21]:
                 return False
-        elif cursor_type.get_canonical().kind not in ClangTranslationUnitChecker.valid_types:
+        elif cursor_type.kind not in self.valid_types:
             return False
         return True
 
@@ -470,14 +459,15 @@ class ClangTranslationUnitChecker:
         message = ''
         param_is_ok = True
 
-        if cursor.type.get_canonical().kind == clang.cindex.TypeKind.POINTER:
+        if cursor.type.get_canonical().kind == TypeKind.POINTER:
             return_type = cursor.type.get_canonical().get_pointee().get_result()
         else:
             return_type = cursor.type.get_canonical().get_result()
 
         record_msg = ''
-        if return_type.get_canonical().kind == clang.cindex.TypeKind.RECORD:
-            ret_is_ok, record_msg = self.check_record(return_type.get_canonical().get_declaration())
+        if return_type.get_canonical().kind == TypeKind.RECORD:
+            decl = return_type.get_canonical().get_declaration()
+            ret_is_ok, record_msg = self.check_record(decl)
         else:
             ret_is_ok = self.check_type(return_type)
 
@@ -485,19 +475,20 @@ class ClangTranslationUnitChecker:
             message += (self.WARN + 'Unsupported return type' + self.ENDC +
                         ': ' + return_type.spelling + '\n' + record_msg)
 
-        if cursor.type.kind == clang.cindex.TypeKind.TYPEDEF:
-            function_children = list(cursor.type.get_declaration().get_children())
+        if cursor.type.kind == TypeKind.TYPEDEF:
+            function_children = cursor.type.get_declaration().get_children()
         else:
-            function_children = list(cursor.get_children())
+            function_children = cursor.get_children()
 
         for child in function_children:
             msg = ''
             is_ok = True
-            if child.kind == clang.cindex.CursorKind.PARM_DECL:
-                if child.type.get_canonical().kind == clang.cindex.TypeKind.RECORD:
-                    is_ok, msg = self.check_record(child.type.get_canonical().get_declaration())
-                elif (child.type.get_canonical().kind in ClangTranslationUnitChecker.function_types or
-                      child.type.get_canonical().get_pointee().kind in ClangTranslationUnitChecker.function_types):
+            child_type = child.type.get_canonical()
+            if child.kind == CursorKind.PARM_DECL:
+                if child_type.kind == TypeKind.RECORD:
+                    is_ok, msg = self.check_record(child_type.get_declaration())
+                elif (child_type.kind in self.function_types or
+                      child_type.get_pointee().kind in self.function_types):
                       is_ok, msg = self.check_func(child)
                 else:
                     if not self.check_type(child.type):
@@ -505,8 +496,9 @@ class ClangTranslationUnitChecker:
 
                 if not is_ok:
                     param_is_ok = False
-                    message += (self.WARN + 'Unsupported parameter type' + self.ENDC +
-                                ': ' + child.type.spelling + '\n' + msg)
+                    message += (self.WARN + 'Unsupported parameter type' +
+                                self.ENDC + ': ' + child.type.spelling + '\n' +
+                                msg)
 
         return (ret_is_ok and param_is_ok), message
 
@@ -517,11 +509,12 @@ class ClangTranslationUnitChecker:
         for child in cursor.get_children():
             msg = ''
             is_ok = True
-            if child.kind == clang.cindex.CursorKind.FIELD_DECL:
-                if child.type.get_canonical().kind == clang.cindex.TypeKind.RECORD:
-                    is_ok, msg = self.check_record(child.type.get_canonical().get_declaration())
-                elif (child.type.get_canonical().kind in ClangTranslationUnitChecker.function_types or
-                      child.type.get_canonical().get_pointee().kind in ClangTranslationUnitChecker.function_types):
+            child_type = child.type.get_canonical()
+            if child.kind == CursorKind.FIELD_DECL:
+                if child_type.kind == TypeKind.RECORD:
+                    is_ok, msg = self.check_record(child_type.get_declaration())
+                elif (child_type.kind in self.function_types or
+                      child_type.get_pointee().kind in self.function_types):
                       is_ok, msg = self.check_func(child)
                 else:
                     if not self.check_type(child.type):
@@ -529,7 +522,8 @@ class ClangTranslationUnitChecker:
 
                 if not is_ok:
                     record_is_ok = False
-                    message += (self.WARN + 'Unsupported member type' + self.ENDC +
-                                ': ' + child.type.spelling + '\n' + msg)
+                    message += (self.WARN + 'Unsupported member type' +
+                                self.ENDC + ': ' + child.type.spelling + '\n' +
+                                msg)
 
         return record_is_ok, message
