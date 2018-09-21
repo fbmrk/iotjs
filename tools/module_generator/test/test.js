@@ -144,3 +144,5 @@ assert.equal(lib.f_func(function () {
 assert.equal(lib.f_func_ptr(function () {
   return 42;
 }), 42);
+
+console.log('Test Run Succeeded!');

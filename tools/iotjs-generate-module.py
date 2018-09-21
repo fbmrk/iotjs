@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2015-present Samsung Electronics Co., Ltd. and other contributors
+# Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -425,7 +425,11 @@ def generate_module(args):
     else:
         sys.exit('Please give an existing directory.')
 
-    output_dir = fs.join(fs.join(path.TOOLS_ROOT, 'module_generator'), 'output')
+    if args.out_dir:
+        output_dir = args.out_dir
+    else:
+        output_dir = fs.join(fs.join(path.TOOLS_ROOT, 'module_generator'),
+                             'output')
 
     if not fs.isdir(output_dir):
         os.mkdir(output_dir)
@@ -475,6 +479,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('directory', help='Root directory of c api headers.')
 
+    parser.add_argument('--out-dir', help='Output directory for the module. ' +
+                        'Default: tools/module_generator/output')
+
     parser.add_argument('--off', choices=['functions', 'variables', 'enums',
                                           'macros'],
         action='append', default=[], help='Turn off source generating.')
@@ -497,6 +504,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--check-all', action='store_true', default=False,
         help='Check the C API headers.')
+
 
 
     args = parser.parse_args()
