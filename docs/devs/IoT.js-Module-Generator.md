@@ -115,7 +115,7 @@ The table below shows which JavaScript type represent the particular C type.
 | struct / union | Object | solved |
 | char * / char [] | String | solved |
 | int * / int [] | TypedArray | solved |
-| function pointer | Function | WIP |
+| function pointer | Function | solved |
 
 Other types are not supported, which means that you need to implement how you would like to use these parts of the C API.
 
@@ -245,6 +245,53 @@ var f = c_lib.f(null); // f is null or TypedArray
 var g = c_lib.g(typed_array);
 ```
 
+##### `function`
+
+Function pointers supported as parameters. There can be cases when it does not work correctly, if the function will be called asynchronous.
+
+```c
+typedef int (*callback)(void);
+
+int f(callback c) {
+  return c();
+}
+```
+```javascript
+var a = c_lib.f(function () {
+  return 42;
+});
+```
+
+Let's see a dummy example, when function pointers work incorrectly.
+
+```c
+typedef void (*cb)(void);
+
+cb cb_arr[2];
+
+void foo(cb c) {
+  static int i = 0;
+  cb_arr[i++] = c;
+}
+
+void bar(void) {
+  cb_arr[0]();
+}
+```
+```javascript
+c_lib.foo(function() {
+  console.log('first callback');
+});
+
+c_lib.foo(function() {
+  console.log('second callback');
+});
+
+// the second foo call overwrite the first callback function
+// it will print 'second callback', which is not the expected
+c_lib.bar();
+```
+
 ### Usage:
 
 You can generate a module using the following command:
@@ -259,6 +306,14 @@ The `<INPUT_FOLDER>` should contain the header files and the static library of t
 #### Optional arguments:
 
 The script has some optional arguments, which are the following:
+
+##### `--out-dir`
+
+The output folder of the generated module. Default is `tools/module_generator/output`
+
+```bash
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> --out-dir <OUTPUT_FOLDER>
+```
 
 ##### `--off`
 * `functions` | `variables` | `enums` | `macros`
