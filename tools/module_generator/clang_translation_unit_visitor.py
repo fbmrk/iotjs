@@ -16,22 +16,6 @@
 
 from clang.cindex import Config, Index, conf, CursorKind, TypeKind
 
-
-# This class is a wrapper for the CursorKind type.
-class ClangASTNodeKind:
-    def __init__(self, cursor_kind):
-        self._cursor_kind = cursor_kind
-
-    def is_struct_decl(self):
-        return self._cursor_kind == CursorKind.STRUCT_DECL
-
-    def is_union_decl(self):
-        return self._cursor_kind == CursorKind.UNION_DECL
-
-    def is_function_decl(self):
-        return self._cursor_kind == CursorKind.FUNCTION_DECL
-
-
 # This class is a wrapper for the TypeKind and Type classes.
 class ClangASTNodeType:
     char_type_kinds = [
@@ -66,11 +50,11 @@ class ClangASTNodeType:
         self._type_name = clang_type.spelling
 
     @property
-    def type_name(self):
+    def name(self):
         return self._type_name
 
     @property
-    def builtin_type_name(self):
+    def builtin_name(self):
         return self._canonical_type.spelling
 
     def is_bool(self):
@@ -88,17 +72,19 @@ class ClangASTNodeType:
     def is_void(self):
         return self._canonical_type.kind == TypeKind.VOID
 
-    def is_builtin(self):
-        return (self.is_bool() or self.is_char() or self.is_number())
-
     def is_pointer(self):
-        return self._canonical_type.kind == TypeKind.POINTER
+        return (self._canonical_type.kind == TypeKind.POINTER or
+                self._canonical_type.kind == TypeKind.CONSTANTARRAY or
+                self._canonical_type.kind == TypeKind.INCOMPLETEARRAY)
 
     def is_array(self):
         return (self._canonical_type.kind == TypeKind.CONSTANTARRAY or
                 self._canonical_type.kind == TypeKind.INCOMPLETEARRAY)
 
-    def is_func(self):
+    def is_record(self):
+        return self._canonical_type.kind == TypeKind.RECORD
+
+    def is_function(self):
         return (self._canonical_type.kind == TypeKind.FUNCTIONPROTO or
                 self._canonical_type.kind == TypeKind.FUNCTIONNOPROTO)
 
@@ -106,20 +92,20 @@ class ClangASTNodeType:
         return self._canonical_type.is_const_qualified()
 
     def get_array_type(self):
-        assert self.is_array()
-        return ClangASTNodeType(self._canonical_type.element_type)
+        return ClangASTNodeType(self._canonical_type.get_array_element_type())
 
     def get_array_size(self):
         assert self.is_array()
         return self._canonical_type.element_count
 
     def get_pointee_type(self):
-        assert self.is_pointer()
-        return ClangASTNodeType(self._canonical_type.get_pointee())
+        if self.is_array():
+            return ClangASTNodeType(self._canonical_type.get_array_element_type())
+        elif self.is_pointer():
+            return ClangASTNodeType(self._canonical_type.get_pointee())
 
     def get_declaration(self):
-        decl = self._canonical_type.get_declaration()
-        return ClangASTNode(decl)
+        return ClangASTNode(self._canonical_type.get_declaration())
 
 
 # This class is a wrapper for the Cursor type.
@@ -127,37 +113,34 @@ class ClangASTNode:
     def __init__(self, cursor):
         self._cursor = cursor
         self._type = ClangASTNodeType(cursor.type)
-        self._kind = ClangASTNodeKind(cursor.kind)
+        self._kind = cursor.kind
 
     @property
     def name(self):
         return self._cursor.spelling
 
     @property
-    def node_type(self):
+    def type(self):
         return self._type
 
     @property
-    def node_kind(self):
+    def kind(self):
         return self._kind
 
-    def get_as_struct_or_union_decl(self):
-        assert (self.node_kind.is_struct_decl() or
-                self.node_kind.is_union_decl())
-        return ClangStructOrUnionDecl(self._cursor)
+    def get_as_record_decl(self):
+        assert (self.type.is_record())
+        return ClangRecordDecl(self._cursor)
 
     def get_as_function(self):
         return ClangFunctionDecl(self._cursor)
 
 
 # This class represents enum declarations in libclang.
-class ClangEnumDecl(ClangASTNode):
+class ClangEnumDecl:
     def __init__(self, cursor):
-        ClangASTNode.__init__(self, cursor)
         self._enum_constant_decls = []
 
-        children = list(cursor.get_children())
-        for child in children:
+        for child in cursor.get_children():
             if child.kind == CursorKind.ENUM_CONSTANT_DECL:
                 self._enum_constant_decls.append(child.spelling)
 
@@ -171,7 +154,7 @@ class ClangFunctionDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
 
-        if self.node_type.is_pointer():
+        if cursor.type.get_canonical().kind == TypeKind.POINTER:
             return_type = cursor.type.get_canonical().get_pointee().get_result()
         else:
             return_type = cursor.type.get_canonical().get_result()
@@ -186,7 +169,10 @@ class ClangFunctionDecl(ClangASTNode):
 
         for child in function_children:
             if child.kind == CursorKind.PARM_DECL:
-                self._parm_decls.append(ClangFunctionParameterDecl(child))
+                child = ClangASTNode(child)
+                if child.type.is_const():
+                    child.type.name = child.type.name.replace('const ', '')
+                self._parm_decls.append(child)
 
     @property
     def return_type(self):
@@ -197,39 +183,26 @@ class ClangFunctionDecl(ClangASTNode):
         return self._parm_decls
 
 
-# This class represents function parameter declarations in libclang.
-class ClangFunctionParameterDecl(ClangASTNode):
-    def __init__(self, cursor):
-        ClangASTNode.__init__(self, cursor)
-
-
 # This class represents struct/union declarations in libclang.
-class ClangStructOrUnionDecl(ClangASTNode):
+class ClangRecordDecl(ClangASTNode):
     def __init__(self, cursor):
         ClangASTNode.__init__(self, cursor)
 
         self._field_decls = []
-        children = list(cursor.get_children())
-        for child in children:
+        for child in cursor.get_children():
             if child.kind == CursorKind.FIELD_DECL:
-                self._field_decls.append(ClangFieldDecl(child))
+                self._field_decls.append(ClangASTNode(child))
 
     @property
     def field_decls(self):
         return self._field_decls
 
-
-
-# This class represents struct/union/class field declarations in libclang.
-class ClangFieldDecl(ClangASTNode):
-    def __init__(self, cursor):
-        ClangASTNode.__init__(self, cursor)
-
-
-# This class represents variable declarations in libclang.
-class ClangVarDecl(ClangASTNode):
-    def __init__(self, cursor):
-        ClangASTNode.__init__(self, cursor)
+    @property
+    def name(self):
+        if self._cursor.spelling:
+            return self._cursor.spelling
+        else:
+            return self.type.name
 
 
 # This class represents macro definitions in libclang.
@@ -282,10 +255,10 @@ class ClangMacroDef(ClangASTNode):
 
 # This class responsible for initializing and visiting
 # the AST provided by libclang.
-class ClangTranslationUnitVisitor:
+class ClangTUVisitor:
     def __init__(self, header, api_headers, args):
         # TODO: Avoid hard-coding paths and args in general.
-        Config.set_library_file('libclang-6.0.so.1')
+        Config.set_library_file('libclang-5.0.so.1')
         index = Index.create()
 
         # TODO: C++ needs a different configuration (-x C++).
@@ -312,7 +285,7 @@ class ClangTranslationUnitVisitor:
                     self.function_decls.append(ClangFunctionDecl(cursor))
 
                 elif cursor.kind == CursorKind.VAR_DECL:
-                    self.var_decls.append(ClangVarDecl(cursor))
+                    self.var_decls.append(ClangASTNode(cursor))
 
                 elif cursor.kind == CursorKind.MACRO_DEFINITION:
                     self.macro_defs.append(ClangMacroDef(cursor))
@@ -330,7 +303,7 @@ class ClangTranslationUnitVisitor:
                                                second.token_kinds[i+1:])
 
 
-class ClangTranslationUnitChecker:
+class ClangTUChecker:
 
     valid_types = [
     #void

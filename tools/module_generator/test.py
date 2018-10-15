@@ -42,7 +42,8 @@ def test_module_generator():
     args = [
     '--external-module=' + module_dir,
     '--cmake-param=-DENABLE_MODULE_TEST_MODULE=ON',
-    '--jerry-profile=es2015-subset'
+    '--jerry-profile=es2015-subset',
+    '--clean'
     ]
     ex.check_run_cmd(build_script, args)
 

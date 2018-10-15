@@ -21,305 +21,9 @@ from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
 from module_generator.source_templates import *
-from module_generator.clang_translation_unit_visitor import *
-
-
-def generate_c_values(node, jval, funcname, name, index='0',
-                      is_setter=False, check_type=True):
-    result = ''
-    buffers_to_free = []
-    callbacks = []
-
-    if isinstance(node, ClangASTNode):
-        node_type = node.node_type
-    elif isinstance(node, ClangASTNodeType):
-        node_type = node
-    if node_type.is_const():
-        node_type_name = node_type.type_name.replace('const ', '')
-    else:
-        node_type_name = node_type.type_name
-    node_declaration = node_type.get_declaration()
-    node_declaration_kind = node_declaration.node_kind
-
-    if (node_declaration_kind.is_struct_decl() or
-        node_declaration_kind.is_union_decl()):
-        struct_decl = node_declaration.get_as_struct_or_union_decl()
-        struct_name = struct_decl.name
-
-        if struct_name == '':
-            struct_name = node_type_name + index
-        else:
-            struct_name += index
-
-        if check_type:
-            result = JS_CHECK_TYPE.format(TYPE='object', JVAL=jval,
-                                          FUNC=funcname)
-
-        if not is_setter:
-            result += "  {TYPE} {NAME};".format(TYPE=node_type_name, NAME=name)
-
-        for field in struct_decl.field_decls:
-            member_name = struct_name + '_' + field.name
-            member_val = member_name + '_value'
-
-            getval, buffers, _ = generate_c_values(field, member_val, funcname,
-                                                   member_name, index)
-
-            buffers_to_free += buffers
-
-            result += JS_GET_PROP.format(NAME=struct_name, MEM=field.name,
-                                         OBJ=jval, GET_VAl=getval, STRUCT=name)
-    elif node_type.is_pointer() or node_type.is_array():
-        if node_type.is_pointer():
-            pointee_type = node_type.get_pointee_type()
-        else:
-            # Array
-            pointee_type = node_type.get_array_type()
-            size = node_type.get_array_size()
-        if pointee_type.is_const():
-            pointee_type_name = pointee_type.type_name.replace('const ', '')
-        else:
-            pointee_type_name = pointee_type.type_name
-
-        if pointee_type.is_char():
-            if check_type:
-                result = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
-                                              FUNC=funcname)
-            if is_setter:
-                if node_type.is_pointer():
-                    result += JS_SET_CHAR_PTR.format(TYPE=pointee_type_name,
-                                                     NAME=name, JVAL=jval)
-                else:
-                    result += JS_SET_CHAR_ARR.format(NAME=name, JVAL=jval,
-                                                     SIZE=(size-1))
-            else:
-                result += JS_GET_STRING.format(TYPE=pointee_type_name,
-                                               NAME=name, JVAL=jval)
-        elif pointee_type.is_number():
-            if check_type:
-                result = JS_CHECK_TYPES.format(TYPE1='typedarray', TYPE2='null',
-                                               JVAL=jval, FUNC=funcname)
-            if is_setter:
-                result += JS_SET_TYPEDARRAY.format(TYPE=pointee_type_name,
-                                                   NAME=name, JVAL=jval)
-            else:
-                result += JS_GET_TYPEDARRAY.format(TYPE=pointee_type_name,
-                                                   NAME=name, JVAL=jval)
-                buffers_to_free.append(JS_WRITE_ARRAYBUFFER.format(NAME=name,
-                                                                   JVAL=jval))
-        elif pointee_type.is_func() and not is_setter:
-            if check_type:
-                result = JS_CHECK_TYPE.format(TYPE='function', JVAL=jval,
-                                              FUNC=funcname)
-            result += JS_GET_FUNCTION.format(FUNC=funcname, NAME=name,
-                                             JVAL=jval)
-            callbacks.append(create_c_function(node, jval, funcname, name))
-        else:
-            result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
-    elif node_type.is_bool():
-        if is_setter:
-            result = JS_SET_BOOL.format(NAME=name, JVAL=jval)
-        else:
-            result = JS_GET_BOOL.format(TYPE=node_type_name, NAME=name,
-                                        JVAL=jval)
-    elif node_type.is_number() or node_type.is_enum():
-        if check_type:
-            result = JS_CHECK_TYPE.format(TYPE='number', JVAL=jval,
-                                          FUNC=funcname)
-        if is_setter:
-            result += JS_SET_NUM.format(NAME=name, JVAL=jval)
-        else:
-            result += JS_GET_NUM.format(TYPE=node_type_name, NAME=name,
-                                        JVAL=jval)
-    elif node_type.is_char():
-        if check_type:
-            result = JS_CHECK_TYPE.format(TYPE='string', JVAL=jval,
-                                          FUNC=funcname)
-        if is_setter:
-            result += JS_SET_CHAR.format(NAME=name, JVAL=jval)
-        else:
-            result += JS_GET_CHAR.format(TYPE=node_type_name, NAME=name,
-                                         JVAL=jval)
-    elif node_type.is_func() and not is_setter:
-        if check_type:
-            result = JS_CHECK_TYPE.format(TYPE='function', JVAL=jval,
-                                          FUNC=funcname)
-        result += JS_GET_FUNCTION.format(FUNC=funcname, NAME=name, JVAL=jval)
-        callbacks.append(create_c_function(node, jval, funcname, name))
-    else:
-        result = JS_GET_UNSUPPORTED.format(TYPE=node_type_name, NAME=name)
-
-    return result, buffers_to_free, callbacks
-
-
-def create_c_function(node, jval, funcname, name):
-    func = node.get_as_function()
-    params = []
-    create_val = []
-
-    for index, param in enumerate(func.params):
-        index = str(index)
-        param_name = ' p_' + index
-        arg_name = ' arg_'+ index
-        params.append(param.node_type.type_name + param_name)
-        create_val.append(generate_js_value(param, param_name, arg_name))
-        create_val.append('    args[' + index + '] =' + arg_name + ';')
-
-    if func.return_type.type_name == 'void':
-        res= ''
-        ret = ''
-    else:
-        res, _, _ = generate_c_values(func.return_type, 'result', funcname,
-                                      'ret', check_type=False)
-        ret = 'ret'
-
-    return JS_CB_FUNCTION.format(FUNC=funcname, NAME=name,
-                                 RET_TYPE=func.return_type.type_name,
-                                 PARAMS=(', ').join(params),
-                                 LEN=len(func.params),
-                                 CREATE_VAL=('\n').join(create_val),
-                                 RESULT=res, RET=ret)
-
-
-def generate_js_value(node, cval, name):
-    if node.node_kind.is_function_decl():
-        node_type = node.return_type
-    else:
-        node_type = node.node_type
-
-    result = None
-
-    node_type_declaration = node_type.get_declaration()
-    node_type_declaration_kind = node_type_declaration.node_kind
-
-    if (node_type_declaration_kind.is_struct_decl() or
-        node_type_declaration_kind.is_union_decl()):
-        struct_decl = node_type_declaration.get_as_struct_or_union_decl()
-        struct_name = struct_decl.name
-
-        if struct_name == '':
-            struct_name = struct_decl.node_type.type_name
-
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='object', FROM='')
-
-        for field in struct_decl.field_decls:
-            member = cval + '.' + field.name
-            member_js = 'js_' + struct_name + '_' + field.name
-            mem_val = generate_js_value(field, member, member_js)
-            result += mem_val
-
-            result += JS_SET_PROP.format(NAME=struct_name, MEM=field.name,
-                                         OBJ=name, JVAL=member_js)
-    elif node_type.is_pointer() or node_type.is_array():
-        if node_type.is_pointer():
-            pointee_type = node_type.get_pointee_type()
-        else:
-            # Array
-            pointee_type = node_type.get_array_type()
-        pointee_type_name = pointee_type.type_name
-
-        if pointee_type.is_char():
-            result = JS_CREATE_STRING.format(NAME=name, FROM=cval)
-        elif pointee_type.is_number():
-            array_type = TYPEDARRAY_TYPES[pointee_type_name]
-            result = JS_CREATE_TYPEDARRAY.format(NAME=name, FROM=cval,
-                                                 TYPE=pointee_type_name,
-                                                 ARRAY_TYPE=array_type)
-        else:
-            result = JS_CREATE_UNSUPPORTED.format(NAME=name, FROM=cval)
-    elif node_type.is_void():
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='undefined', FROM='')
-    elif node_type.is_bool():
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='boolean', FROM=cval)
-    elif node_type.is_number():
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
-    elif node_type.is_char():
-        result = JS_CREATE_CHAR.format(NAME=name, FROM=cval)
-    elif node_type.is_enum():
-        result = JS_CREATE_VAL.format(NAME=name, TYPE='number', FROM=cval)
-    else:
-        result = JS_CREATE_UNSUPPORTED.format(NAME=name, FROM=cval)
-
-    return result
-
-
-def generate_jerry_functions(functions):
-    for function in functions:
-        funcname = function.name
-        params = function.params
-        return_type = function.return_type.type_name
-        jerry_function = []
-        native_params = []
-        buffers_to_free = []
-        callbacks = []
-
-        if params:
-            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=len(params),
-                                                            FUNC=funcname))
-
-            for index, param in enumerate(params):
-                index = str(index)
-                jval = 'args_p[' + index + ']'
-                name = 'arg_' + index
-                result, buffers, callbacks = generate_c_values(param, jval,
-                                                               funcname, name,
-                                                               index)
-
-                native_params.append('arg_' + index)
-                buffers_to_free += buffers
-                jerry_function.append(result)
-        else:
-            jerry_function.append(JS_CHECK_ARG_COUNT.format(COUNT=0,
-                                                            FUNC=funcname))
-
-        native_params = (', ').join(native_params)
-
-        result = generate_js_value(function, 'result', 'ret_val')
-
-        if return_type == 'void':
-            native_call = '  {} ({});\n'.format(funcname, native_params)
-        else:
-            native_call = '  {} {} = {} ({});\n'.format(return_type, 'result',
-                                                        funcname, native_params)
-
-        jerry_function.append('  // native function call\n' + native_call)
-        jerry_function += buffers_to_free
-        jerry_function.append(result)
-
-        yield (JS_EXT_FUNC.format(NAME=funcname + '_handler',
-                                  BODY=('\n').join(jerry_function)),
-               ('\n').join(callbacks))
-
-
-def generate_getter_setter(var):
-    name = var.name
-    get_result = generate_js_value(var, name, 'ret_val')
-    set_result, buffers, _ = generate_c_values(var, 'args_p[0]',
-                                               name + '_setter', name,
-                                               is_setter=True)
-
-    set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
-
-    getter = JS_EXT_FUNC.format(NAME=name + '_getter', BODY=get_result)
-    setter = JS_EXT_FUNC.format(NAME=name + '_setter', BODY=set_result)
-
-    return getter, setter
-
-
-def regist_macro(macro):
-    result = ''
-    name = macro.name
-
-    if macro.is_char():
-        result = '  char {NAME}_value = {NAME};'.format(NAME=name)
-        result += JS_CREATE_CHAR.format(NAME=name + '_js', FROM=name + '_value')
-    elif macro.is_string():
-        result = JS_CREATE_STRING.format(NAME=name + '_js', FROM=name)
-    elif macro.is_number():
-        result = JS_CREATE_VAL.format(NAME=name + '_js', TYPE='number',
-                                      FROM=name)
-
-    return result
+from module_generator.clang_translation_unit_visitor import ClangTUVisitor, \
+    ClangTUChecker
+from module_generator.source_generator import CSourceGenerator
 
 
 def generate_c_source(header, api_headers, dirname, args):
@@ -334,60 +38,32 @@ def generate_c_source(header, api_headers, dirname, args):
     if args.includes:
         visit_args += ['-I' + inc for inc in args.includes.read().splitlines()]
 
-    visitor = ClangTranslationUnitVisitor(header, api_headers, visit_args)
+    visitor = ClangTUVisitor(header, api_headers, visit_args)
     visitor.visit()
+
+    generator = CSourceGenerator(visitor)
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
 
-    init_function = []
-
     if 'functions' not in args.off:
-        # 'functions' is (jerry_function, callbacks)
-        for functions in generate_jerry_functions(visitor.function_decls):
-            generated_source.append(functions[1])
-            generated_source.append(functions[0])
-
         for function in visitor.function_decls:
-            init_function.append(INIT_REGIST_FUNC.format(NAME=function.name))
+            generated_source.append(generator.create_ext_function(function))
 
+    enums = []
     if 'enums' not in args.off:
         for decl in visitor.enum_constant_decls:
-            for enum in decl.enums:
-                init_function.append(INIT_REGIST_ENUM.format(ENUM=enum))
+            enums += decl.enums
 
     if 'variables' not in args.off:
         for var in visitor.var_decls:
-            if var.node_type.is_const():
-                result = generate_js_value(var, var.name, var.name + '_js')
-                init_function.append(result)
-                init_function.append(INIT_REGIST_CONST.format(NAME=var.name))
-            elif (var.node_type.is_array() and
-                  var.node_type.get_array_type().is_number()):
-                array_type = var.node_type.get_array_type()
-                type_name = array_type.type_name
-                size = var.node_type.get_array_size()
-                array_type = TYPEDARRAY_TYPES[type_name]
-                result = INIT_REGIST_NUM_ARR.format(NAME=var.name,
-                                                    TYPE=type_name,
-                                                    SIZE=size,
-                                                    ARRAY_TYPE=array_type)
-                init_function.append(result)
-            else:
-                getter, setter = generate_getter_setter(var)
-                generated_source.append(getter)
-                generated_source.append(setter)
-                init_function.append(INIT_REGIST_VALUE.format(NAME=var.name))
+            generated_source.append(generator.create_getter_setter(var))
 
+    macros = []
     if 'macros' not in args.off:
-        for macro in visitor.macro_defs:
-            result = regist_macro(macro)
-            if result:
-                init_function.append(result)
-                init_function.append(INIT_REGIST_CONST.format(NAME=macro.name))
+        macros = visitor.macro_defs
 
-
-    generated_source.append(INIT_FUNC.format(NAME=dirname,
-                                             BODY=('\n').join(init_function)))
+    generated_source.append(generator.create_init_function(dirname, enums,
+                                                           macros))
 
     return ('\n').join(generated_source)
 
@@ -446,8 +122,7 @@ def generate_module(args):
         h.write(header_text)
 
     if args.check or args.check_all:
-        checker = ClangTranslationUnitChecker(header_file, api_headers,
-                                              args.check_all)
+        checker = ClangTUChecker(header_file, api_headers, args.check_all)
         checker.check()
         return
 

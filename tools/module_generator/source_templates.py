@@ -15,77 +15,47 @@
 # limitations under the License.
 
 
-# Template for a jerry_external_handler_t type function
-
-JS_EXT_FUNC = '''
-// external function for API functions or for getters / setters
-jerry_value_t {NAME} (const jerry_value_t function_obj,
-                      const jerry_value_t this_val,
-                      const jerry_value_t args_p[],
-                      const jerry_length_t args_cnt)
-{{
-  {BODY}
-  return ret_val;
-}}
-'''
-
-
-# Template for check the count of the external function's arguments
-
-JS_CHECK_ARG_COUNT = '''
-  // check the count of the external function's arguments
-  if (args_cnt != {COUNT})
-  {{
-    char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
-  }}
-'''
-
-
-# Templates for check the type of a jerry_value_t variable
-
-JS_CHECK_TYPE = '''
-  // check the type of a jerry_value_t variable
-  if (!jerry_value_is_{TYPE} ({JVAL}))
-  {{
-    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
-  }}
-'''
-
-JS_CHECK_TYPES = '''
-  // check the type of a jerry_value_t variable
-  if (!jerry_value_is_{TYPE1} ({JVAL}) && !jerry_value_is_{TYPE2} ({JVAL}))
-  {{
-    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE1} or {TYPE2}.";
-    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
-  }}
-'''
-
-
-# Templates for get the value from a jerry_value_t variable
-
-# Boolean to _Bool
-JS_GET_BOOL = '''
-  // create a _Bool value from a jerry_value_t
-  {TYPE} {NAME} = jerry_value_to_boolean ({JVAL});
-'''
-
-# Number to int/float/enum
-JS_GET_NUM = '''
-  // create an integer / floating point number from a jerry_value_t
-  {TYPE} {NAME} = jerry_get_number_value ({JVAL});
-'''
+# Templates for create/set a C variable
 
 # one length String to char
-JS_GET_CHAR = '''
+JS_TO_CHAR = '''
   // create a character value from a jerry_value_t
   {TYPE} {NAME};
   jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
 '''
 
+# Set a char variable
+JS_SET_CHAR = '''
+  // set the value of {NAME}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
+'''
+
+# Number to int/float/enum
+JS_TO_NUMBER = '''
+  // create an integer / floating point number from a jerry_value_t
+  {TYPE} {NAME} = jerry_get_number_value ({JVAL});
+'''
+
+# Set an int/float/enum variable
+JS_SET_NUMBER = '''
+  // set the value of {NAME}
+  {NAME} = jerry_get_number_value ({JVAL});
+'''
+
+# Boolean to _Bool
+JS_TO_BOOL = '''
+  // create a _Bool value from a jerry_value_t
+  {TYPE} {NAME} = jerry_value_to_boolean ({JVAL});
+'''
+
+# Set a _Bool variable
+JS_SET_BOOL = '''
+  // set the value of {NAME}
+  {NAME} = jerry_value_to_boolean ({JVAL});
+'''
+
 # String to char[]
-JS_GET_STRING = '''
+JS_TO_STRING = '''
   // create an array of characters from a jerry_value_t
   jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
   {TYPE} {NAME}[{NAME}_size + 1];
@@ -93,24 +63,43 @@ JS_GET_STRING = '''
   {NAME}[{NAME}_size] = '\\0';
 '''
 
+# Set a char* variable
+JS_SET_CHAR_PTR = '''
+  // set the value of {NAME}
+  jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
+  if ({NAME} == NULL)
+  {{
+    {NAME} = ({TYPE}*) malloc ({NAME}_size + 1);
+  }}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
+  {NAME}[{NAME}_size] = '\\0';
+'''
+
+# Set a char[] variable
+JS_SET_CHAR_ARR = '''
+  // set the value of {NAME}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {SIZE});
+  {NAME}[{SIZE}] = '\\0';
+'''
+
 # Object to struct/union
 JS_GET_PROP = '''
   // get a property from a jerry_value_t object
-  jerry_value_t {NAME}_{MEM}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
-  jerry_value_t {NAME}_{MEM}_value = jerry_get_property ({OBJ}, {NAME}_{MEM}_name);
-  jerry_release_value ({NAME}_{MEM}_name);
+  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t *) "{MEM}");
+  jerry_value_t {NAME}_value = jerry_get_property ({OBJ}, {NAME}_name);
+  jerry_release_value ({NAME}_name);
 
-  // get the value from the property and set the {STRUCT} struct/union's member
-  if (!jerry_value_is_undefined ({NAME}_{MEM}_value))
+  // get the value from the property and set the {RECORD} struct/union's member
+  if (!jerry_value_is_undefined ({NAME}_value))
   {{
     {GET_VAl}
-    {STRUCT}.{MEM} = {NAME}_{MEM};
+    {RECORD}.{MEM} = {NAME};
   }}
-  jerry_release_value ({NAME}_{MEM}_value);
+  jerry_release_value ({NAME}_value);
 '''
 
-# TypedArray to pointer
-JS_GET_TYPEDARRAY = '''
+# TypedArray to number pointer
+JS_TO_TYPEDARRAY = '''
   // create a pointer to number from a jerry_value_t
   {TYPE} * {NAME} = NULL;
   jerry_length_t {NAME}_byteLength = 0;
@@ -129,7 +118,45 @@ JS_GET_TYPEDARRAY = '''
   }}
 '''
 
+JS_FREE_BUFFER = '''
+  // write the values back into an arraybuffer from a pointer
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    jerry_arraybuffer_write ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+    jerry_release_value ({NAME}_buffer);
+    // TODO: if you won't use {NAME} pointer, uncomment the line below
+    //free ({NAME});
+  }}
+'''
+
+# Set a number pointer
+JS_SET_TYPEDARRAY = '''
+  // set the value of {NAME}
+  jerry_length_t {NAME}_byteLength = 0;
+  jerry_length_t {NAME}_byteOffset = 0;
+  jerry_value_t {NAME}_buffer;
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
+    if ({NAME} == NULL)
+    {{
+      {NAME} = ({TYPE}*) malloc ({NAME}_byteLength);
+    }}
+    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+    jerry_release_value ({NAME}_buffer);
+  }}
+  else
+  {{
+    {NAME} = NULL;
+  }}
+'''
+
 # Function to C function
+JS_TO_FUNCTION = '''
+  {FUNC}_{NAME}_js = {JVAL};
+  void* {NAME} = {FUNC}_{NAME};
+'''
+
 JS_CB_FUNCTION = '''
 jerry_value_t {FUNC}_{NAME}_js;
 {RET_TYPE} {FUNC}_{NAME} ({PARAMS})
@@ -150,13 +177,14 @@ jerry_value_t {FUNC}_{NAME}_js;
 }}
 '''
 
-JS_GET_FUNCTION = '''
-  {FUNC}_{NAME}_js = {JVAL};
-  void* {NAME} = {FUNC}_{NAME};
+# Unsupported C type
+JS_TO_UNSUPPORTED = '''
+  // TODO: Define the right value of the variable.
+  {TYPE} {NAME};
 '''
 
 
-# Templates for make a jerry_value_t variable
+# Templates for create a jerry_value_t variable
 
 # Create Undefined/Bool/Number/Object
 JS_CREATE_VAL = '''
@@ -209,7 +237,7 @@ JS_CREATE_TYPEDARRAY = '''
   }}
 '''
 
-TYPEDARRAY_TYPES = {
+TYPEDARRAYS = {
     'signed char': 'INT8',
     'unsigned char': 'UINT8',
     'short': 'INT16',
@@ -225,92 +253,57 @@ TYPEDARRAY_TYPES = {
     'long double': 'FLOAT64'
 }
 
-
-# Template for write the values back into an ArrayBuffer after the native call
-
-JS_WRITE_ARRAYBUFFER = '''
-  // write the values back into an arraybuffer from a pointer
-  if (jerry_value_is_typedarray ({JVAL}))
-  {{
-    jerry_arraybuffer_write ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
-    jerry_release_value ({NAME}_buffer);
-    // TODO: if you won't use {NAME} pointer, uncomment the line below
-    //free ({NAME});
-  }}
-'''
-
-
-# Template for unsupported C types
-
-JS_GET_UNSUPPORTED = '''
-  // TODO: Define the right value of the variable.
-  {TYPE} {NAME};
-'''
-
+# Unsupported C type
 JS_CREATE_UNSUPPORTED = '''
   // TODO: Create a valid jerry_value_t from '{FROM}'.
   jerry_value_t {NAME} = jerry_create_undefined ();
 '''
 
 
-# Templates for setter functions
+# Template for a jerry_external_handler_t type function
 
-# Set a _Bool variable
-JS_SET_BOOL = '''
-  // set the value of {NAME}
-  {NAME} = jerry_value_to_boolean ({JVAL});
+JS_EXT_FUNC = '''
+// external function for API functions or for getters / setters
+jerry_value_t {NAME} (const jerry_value_t function_obj,
+                      const jerry_value_t this_val,
+                      const jerry_value_t args_p[],
+                      const jerry_length_t args_cnt)
+{{
+{BODY}
+  return ret_val;
+}}
 '''
 
-# Set an int/float/enum variable
-JS_SET_NUM = '''
-  // set the value of {NAME}
-  {NAME} = jerry_get_number_value ({JVAL});
-'''
 
-# Set a char variable
-JS_SET_CHAR = '''
-  // set the value of {NAME}
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)(&{NAME}), 1);
-'''
+# Template for check the count of the external function's arguments
 
-# Set a char* variable
-JS_SET_CHAR_PTR = '''
-  // set the value of {NAME}
-  jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
-  if (!{NAME})
+JS_CHECK_ARG_COUNT = '''
+  // check the count of the external function's arguments
+  if (args_cnt != {COUNT})
   {{
-    {NAME} = ({TYPE}*) malloc ({NAME}_size + 1);
+    char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
-  {NAME}[{NAME}_size] = '\\0';
 '''
 
-# Set a char[] variable
-JS_SET_CHAR_ARR = '''
-  // set the value of {NAME}
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {SIZE});
-  {NAME}[{SIZE}] = '\\0';
-'''
 
-# Set a pointer
-JS_SET_TYPEDARRAY = '''
-  // set the value of {NAME}
-  jerry_length_t {NAME}_byteLength = 0;
-  jerry_length_t {NAME}_byteOffset = 0;
-  jerry_value_t {NAME}_buffer;
-  if (jerry_value_is_typedarray ({JVAL}))
+# Templates for check the type of a jerry_value_t variable
+
+JS_CHECK_TYPE = '''
+  // check the type of a jerry_value_t variable
+  if (!jerry_value_is_{TYPE} ({JVAL}))
   {{
-    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
-    if ({NAME} == NULL)
-    {{
-      {NAME} = ({TYPE}*) malloc ({NAME}_byteLength);
-    }}
-    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
-    jerry_release_value ({NAME}_buffer);
+    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
-  else
+'''
+
+JS_CHECK_TYPES = '''
+  // check the type of a jerry_value_t variable
+  if (!jerry_value_is_{TYPE1} ({JVAL}) && !jerry_value_is_{TYPE2} ({JVAL}))
   {{
-    {NAME} = NULL;
+    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE1} or {TYPE2}.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
 
