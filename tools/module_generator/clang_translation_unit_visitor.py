@@ -14,7 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clang.cindex import Config, Index, conf, CursorKind, TypeKind
+from clang.cindex import Config, Index, conf, CursorKind, TypeKind, \
+    AccessSpecifier
 
 # This class is a wrapper for the TypeKind and Type classes.
 class ClangASTNodeType:
@@ -163,16 +164,15 @@ class ClangFunctionDecl(ClangASTNode):
 
         self._parm_decls = []
         if cursor.type.kind == TypeKind.TYPEDEF:
-            function_children = cursor.type.get_declaration().get_children()
+            function_arguments = cursor.type.get_declaration().get_arguments()
         else:
-            function_children = cursor.get_children()
+            function_arguments = cursor.get_arguments()
 
-        for child in function_children:
-            if child.kind == CursorKind.PARM_DECL:
-                child = ClangASTNode(child)
-                if child.type.is_const():
-                    child.type.name = child.type.name.replace('const ', '')
-                self._parm_decls.append(child)
+        for arg in function_arguments:
+            arg = ClangASTNode(arg)
+            if arg.type.is_const():
+                arg.type.name = arg.type.name.replace('const ', '')
+            self._parm_decls.append(arg)
 
     @property
     def return_type(self):
@@ -181,28 +181,6 @@ class ClangFunctionDecl(ClangASTNode):
     @property
     def params(self):
         return self._parm_decls
-
-
-# This class represents struct/union declarations in libclang.
-class ClangRecordDecl(ClangASTNode):
-    def __init__(self, cursor):
-        ClangASTNode.__init__(self, cursor)
-
-        self._field_decls = []
-        for child in cursor.get_children():
-            if child.kind == CursorKind.FIELD_DECL:
-                self._field_decls.append(ClangASTNode(child))
-
-    @property
-    def field_decls(self):
-        return self._field_decls
-
-    @property
-    def name(self):
-        if self._cursor.spelling:
-            return self._cursor.spelling
-        else:
-            return self.type.name
 
 
 # This class represents macro definitions in libclang.
@@ -253,16 +231,123 @@ class ClangMacroDef(ClangASTNode):
         return conf.lib.clang_Cursor_isMacroFunctionLike(self._cursor)
 
 
+class ClangClassConstructor:
+    def __init__(self, cursor_list):
+
+        self._parm_decls = {}
+        for cursor in cursor_list:
+            arguments = list(cursor.get_arguments())
+            param_lists = [arguments]
+
+            # handle default arguments
+            for arg in reversed(arguments):
+                if '=' in [t.spelling for t in arg.get_tokens()]:
+                    arguments = arguments[:-1]
+                    param_lists.append(arguments)
+
+            for param_list in param_lists:
+                params = []
+                for param in param_list:
+                    param = ClangASTNode(param)
+                    if param.type.is_const():
+                        param.type.name = param.type.name.replace('const ', '')
+                    params.append(param)
+                if len(param_list) in self._parm_decls:
+                    self._parm_decls[len(param_list)].append(params)
+                else:
+                    self._parm_decls[len(param_list)] = [params]
+
+
+    @property
+    def params(self):
+        return self._parm_decls
+
+
+class ClangClassMethod(ClangClassConstructor):
+    def __init__(self, name, cursor_list):
+        ClangClassConstructor.__init__(self, cursor_list)
+
+        self._method_name = name
+        return_type = cursor_list[0].type.get_canonical().get_result()
+        self._return_type = ClangASTNodeType(return_type)
+
+    @property
+    def name(self):
+        return self._method_name
+
+    @property
+    def return_type(self):
+        return self._return_type
+
+
+# This class represents struct/union/class declarations in libclang.
+class ClangRecordDecl(ClangASTNode):
+    def __init__(self, cursor):
+        ClangASTNode.__init__(self, cursor)
+
+        self._field_decls = []
+        self._has_default_constructor = False
+        self._has_copy_constructor = False
+
+        constructors = []
+        methods = {}
+        for child in cursor.get_children():
+            if child.access_specifier == AccessSpecifier.PUBLIC:
+                if child.kind == CursorKind.CONSTRUCTOR:
+                    if child.is_default_constructor():
+                        self._has_default_constructor = True
+                    if child.is_copy_constructor():
+                        self._has_copy_constructor = True
+                    constructors.append(child)
+                if child.kind == CursorKind.FIELD_DECL:
+                    self._field_decls.append(ClangASTNode(child))
+                if child.kind == CursorKind.CXX_METHOD:
+                    if child.spelling in methods:
+                        methods[child.spelling].append(child)
+                    else:
+                        methods[child.spelling] = [child]
+
+        if not constructors:
+            self._has_default_constructor = True
+        self._constructor = ClangClassConstructor(constructors)
+        self._methods = [ClangClassMethod(k, v) for k, v in methods.items()]
+
+    @property
+    def name(self):
+        if self._cursor.spelling:
+            return self._cursor.spelling
+        else:
+            return self.type.name
+
+    @property
+    def constructor(self):
+        return self._constructor
+
+    def has_default_constructor(self):
+        return self._has_default_constructor
+
+    def has_copy_constructor(self):
+        return self._has_copy_constructor
+
+    @property
+    def field_decls(self):
+        return self._field_decls
+
+    @property
+    def methods(self):
+        return self._methods
+
+
 # This class responsible for initializing and visiting
 # the AST provided by libclang.
 class ClangTUVisitor:
-    def __init__(self, header, api_headers, args):
+    def __init__(self, lang, header, api_headers, args):
         # TODO: Avoid hard-coding paths and args in general.
         Config.set_library_file('libclang-5.0.so.1')
         index = Index.create()
 
-        # TODO: C++ needs a different configuration (-x C++).
-        self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
+        self.is_cpp = True if lang == 'c++' else False
+        self.clang_args = ['-x', lang, '-I/usr/include/clang/5.0/include/']
         self.translation_unit = index.parse(header, args + self.clang_args,
                                             options=1)
         self.api_headers = api_headers
@@ -270,10 +355,12 @@ class ClangTUVisitor:
         self.function_decls = []
         self.var_decls = []
         self.macro_defs = []
+        self.class_decls = []
 
     def visit(self):
         children = self.translation_unit.cursor.get_children()
 
+        cpp_funcs = {}
         for cursor in children:
             if (cursor.location.file != None and
                 cursor.location.file.name in self.api_headers):
@@ -282,13 +369,28 @@ class ClangTUVisitor:
                     self.enum_constant_decls.append(ClangEnumDecl(cursor))
 
                 elif cursor.kind == CursorKind.FUNCTION_DECL:
-                    self.function_decls.append(ClangFunctionDecl(cursor))
+                    if self.is_cpp:
+                        if cursor.spelling in cpp_funcs:
+                            cpp_funcs[cursor.spelling].append(cursor)
+                        else:
+                            cpp_funcs[cursor.spelling] = [cursor]
+                    else:
+                        self.function_decls.append(ClangFunctionDecl(cursor))
 
                 elif cursor.kind == CursorKind.VAR_DECL:
                     self.var_decls.append(ClangASTNode(cursor))
 
                 elif cursor.kind == CursorKind.MACRO_DEFINITION:
                     self.macro_defs.append(ClangMacroDef(cursor))
+
+                elif (self.is_cpp and
+                      (cursor.kind == CursorKind.CLASS_DECL or
+                       cursor.kind == CursorKind.STRUCT_DECL or
+                       cursor.kind == CursorKind.UNION_DECL)):
+                    self.class_decls.append(ClangRecordDecl(cursor))
+
+        if self.is_cpp:
+            self.function_decls = [ClangClassMethod(k, v) for k, v in cpp_funcs.items()]
 
         # Resolve other macros in macro definition
         for first in self.macro_defs:

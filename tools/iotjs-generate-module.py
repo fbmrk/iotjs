@@ -20,10 +20,11 @@ import sys
 from common_py import path
 from common_py.system.filesystem import FileSystem as fs
 
-from module_generator.source_templates import *
+from module_generator.source_generator import CSourceGenerator, \
+    CppSourceGenerator
 from module_generator.clang_translation_unit_visitor import ClangTUVisitor, \
     ClangTUChecker
-from module_generator.source_generator import CSourceGenerator
+
 
 
 def generate_c_source(header, api_headers, dirname, args):
@@ -38,12 +39,19 @@ def generate_c_source(header, api_headers, dirname, args):
     if args.includes:
         visit_args += ['-I' + inc for inc in args.includes.read().splitlines()]
 
-    visitor = ClangTUVisitor(header, api_headers, visit_args)
+    visitor = ClangTUVisitor(args.x, header, api_headers, visit_args)
     visitor.visit()
 
-    generator = CSourceGenerator(visitor)
+    if args.x == 'c':
+        generator = CSourceGenerator()
+    elif args.x == 'c++':
+        generator = CppSourceGenerator()
 
-    generated_source = [INCLUDE.format(HEADER=dirname + '_js_wrapper.h')]
+    generated_source = [INCLUDE.format(HEADER=dirname + '_js_binding.h')]
+
+    if args.x == 'c++' and 'classes' not in args.off:
+        for cpp_class in visitor.class_decls:
+            generated_source.append(generator.create_class(cpp_class))
 
     if 'functions' not in args.off:
         for function in visitor.function_decls:
@@ -115,7 +123,12 @@ def generate_module(args):
     if not fs.isdir(output_dir):
         os.mkdir(output_dir)
 
-    header_file = fs.join(output_dir, dirname + '_js_wrapper.h')
+    src_dir = fs.join(output_dir, 'src')
+
+    if not fs.isdir(src_dir):
+        os.mkdir(src_dir)
+
+    header_file = fs.join(src_dir, dirname + '_js_binding.h')
     header_text, api_headers = generate_header(directory)
 
     with open(header_file, 'w') as h:
@@ -128,7 +141,8 @@ def generate_module(args):
 
     c_file = generate_c_source(header_file, api_headers, dirname, args)
 
-    with open(fs.join(output_dir, dirname + '_js_wrapper.c'), 'w') as c:
+    extension = 'cpp' if args.x == 'c++' else 'c'
+    with open(fs.join(src_dir, dirname + '_js_binding.' + extension), 'w') as c:
         c.write(c_file)
 
     if args.no_lib:
@@ -144,6 +158,11 @@ def generate_module(args):
 
         json_file = MODULES_JSON.format(NAME=dirname, CMAKE='module.cmake')
 
+        if args.x == 'c++':
+            cmake_lists = CMAKE_LISTS.format(NAME=dirname)
+            with open(fs.join(src_dir, 'CMakeLists.txt'), 'w') as cmake:
+                cmake.write(cmake_lists)
+
     with open(fs.join(output_dir, 'modules.json'), 'w') as json:
         json.write(json_file)
 
@@ -152,13 +171,16 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('directory', help='Root directory of c api headers.')
+    parser.add_argument('directory', help='Root directory of the C/C++ API.')
+
+    parser.add_argument('-x', choices=['c', 'c++'], default='c',
+        help='Specify the language of the API. (default: %(default)s)')
 
     parser.add_argument('--out-dir', help='Output directory for the module. ' +
-                        'Default: tools/module_generator/output')
+                        '(default: tools/module_generator/output)')
 
     parser.add_argument('--off', choices=['functions', 'variables', 'enums',
-                                          'macros'],
+                                          'macros', 'classes'],
         action='append', default=[], help='Turn off source generating.')
 
     parser.add_argument('--no-lib', action='store_true', default=False,
@@ -183,5 +205,12 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
+
+    if args.x == 'c':
+        from module_generator.c_source_templates import INCLUDE, MODULES_JSON, \
+            MODULE_CMAKE
+    elif args.x == 'c++':
+        from module_generator.cpp_source_templates import INCLUDE, \
+            MODULES_JSON, MODULE_CMAKE, CMAKE_LISTS
 
     generate_module(args)

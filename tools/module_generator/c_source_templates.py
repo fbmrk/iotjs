@@ -1,4 +1,4 @@
-  #!/usr/bin/env python
+#!/usr/bin/env python
 
 # Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
 #
@@ -308,15 +308,6 @@ JS_CHECK_TYPES = '''
 '''
 
 
-# Template for include the right headers
-
-INCLUDE = '''
-#include <stdlib.h>  // If there are pointers, malloc() and free() required
-#include "jerryscript.h"
-#include "{HEADER}"
-'''
-
-
 # Templates for the module initialization function
 
 INIT_FUNC = '''
@@ -397,13 +388,22 @@ INIT_REGIST_NUM_ARR = '''
 '''
 
 
+# Template for include the right headers
+
+INCLUDE = '''
+#include <stdlib.h>  // If there are pointers, malloc() and free() required
+#include "jerryscript.h"
+#include "{HEADER}"
+'''
+
+
 # Templates for modules.json and module.cmake
 
 MODULES_JSON = '''
 {{
   "modules": {{
     "{NAME}_module": {{
-      "native_files": ["{NAME}_js_wrapper.c"],
+      "native_files": ["src/{NAME}_js_binding.c"],
       "init": "Init_{NAME}",
       "cmakefile": "{CMAKE}"
     }}

@@ -1,19 +1,21 @@
-# C API to IoT.js module generator
+# C/C++ API to IoT.js module generator
 
-This tool generates a JS module from a C API, and you can use it in IoT.js like other modules. The input of the generator is a directory, which contains the C header files and the static library of the API.
+This tool generates a JS module from a C/C++ API, and you can use it in IoT.js like other modules. The input of the generator is a directory, which contains the C/C++ header files and the static library of the API.
 
 1. [Dependencies](#dependencies)
 2. [Features](#features)
+    - [Classes](#classes)
     - [Functions](#functions)
     - [Variables](#variables)
     - [Enums](#enums)
     - [Macros](#macros)
-    - [Types](#types)
-3. [Usage](#usage)
+3. [Supported types](#supported-types)
+    - [Examples](#examples)
+4. [Usage](#usage)
     - [Optional arguments](#optional-arguments)
-4. [Quick example](#quick-example)
+5. [Quick example](#quick-example)
 
-### Dependencies:
+## Dependencies:
 
 #### Clang library:
 
@@ -29,26 +31,67 @@ apt install python-clang-5.0
 
 (The tool has been tested only with the 5.0 version.)
 
-### Features:
 
-The C library is represented as an object in the JavaScript environment. This object is the result of the `require` function call with the right module name parameter. The generated module name is the name of the input folder with `'_module'` suffix.
+## Features:
+
+The C/C++ library is represented as an object in the JavaScript environment. This object is the result of the `require` function call with the right module name parameter. The generated module name is the name of the input folder with `'_module'` suffix.
 
 ```javascript
-var c_lib = require('module_name');
+var lib = require('module_name');
+```
+
+#### Classes:
+
+If there is a class in the C++ library, the module object has a property with the name of the class, which is a constructor. You can create an object in JavaScript, if you call the constructor with the right parameters. The returned JavaScript variable has some properties, which are represent the members and methods of the class.
+
+```cpp
+class MyClass {
+  int x;
+public:
+  MyClass(): x(0) {}
+  MyClass(int x): x(x) {}
+
+  void foo(void); // print x
+};
+```
+```javascript
+var cpp_lib = require('module_name');
+
+var obj1 = new cpp_lib.MyClass();
+var obj2 = new cpp_lib.MyClass(42);
+
+obj1.foo(); // print 0
+obj2.foo(); // print 42
 ```
 
 #### Functions:
 
-Every function from the C library are represented as properties of the library object. If there is a declaration, like `void foo(int);` in the C library, then the object has a property with the name `foo`.
+Every function from the C/C++ library are represented as properties of the library object.
+
+**C :**
+
+If there is a declaration, like `void foo(int);` in the C library, then the object has a property with the name `foo`.
 
 ```javascript
 var c_lib = require('module_name');
 c_lib.foo(42); // call the C function
 ```
 
+**C++ :**
+
+The different between C and C++ functions, that you can call C++ functions with the same name, but with different parameter lists. If there is a declaration, like `void foo(int = 0);` in the C++ library, you can use it as below. It works in the case of constructors and methods too.
+
+```javascript
+var cpp_lib = require('module_name');
+cpp_lib.foo(); // call the C++ function with the default parameter
+cpp_lib.foo(42);
+```
+
 #### Variables:
 
-The global variables of the C library are also represented as properties. If there is a declaration, like `int a;` in the C library, then the object has a property with the name `a`, and you can get and set its value, but if there is a definition, like `const int b = 42;` you can only read the value from the property and you can not modify it.
+The global variables of the C/C++ library are also represented as properties. If there is a declaration, like `int a;` in the C library, then the object has a property with the name `a`, and you can get and set its value, but if there is a definition, like `const int b = 42;` you can only read the value from the property and you can not modify it.
+
+**C :**
 
 C header:
 ```c
@@ -57,36 +100,38 @@ int i;
 
 JS file:
 ```javascript
-var c_lib = require('module_name');
-c_lib.i = 1; // set the value of 'i'
-console.log(c_lib.i); // print 1
+var lib = require('module_name');
+lib.i = 1; // set the value of 'i'
+console.log(lib.i); // print 1
 ```
+
+**C++ [WIP]**
 
 #### Enums:
 
-C enums work like constants above. You can read the value of the enumerator from a property, but you can not modify it.
+Enums work like constants above. You can read the value of the enumerator from a property, but you can not modify it.
 
-C header:
+C/C++ header:
 ```c
 enum abc {A, B, C};
 ```
 
 JS file:
 ```javascript
-var c_lib = require('module_name');
-console.log(c_lib.A); // print 0
-console.log(c_lib.B); // print 1
-console.log(c_lib.C); // print 2
+var lib = require('module_name');
+console.log(lib.A); // print 0
+console.log(lib.B); // print 1
+console.log(lib.C); // print 2
 ```
 
 #### Macros:
 
-C macros also work like constants. You can read the value of the macro from a property, but you can not modify it. There are three supported C macro types.
+Macros also work like constants. You can read the value of the macro from a property, but you can not modify it. There are three supported macro types.
 * If the macro defines a character literal, like `#define C 'c'`.
 * If the macro defines a string literal, like `#define STR "str"`.
 * If the macro defines a numeric literal, or contains some kind of operation, but the result is a number, like `#defines ZERO 0` or `#define TWO 1 + 1`. It also works, if the macro contains other macro identifiers.
 
-C header:
+C/C++ header:
 ```c
 #define ONE 1
 #define TWO 2
@@ -95,38 +140,39 @@ C header:
 
 JS file:
 ```javascript
-var c_lib = require('module_name');
-console.log(c_lib.ONE); // print 1
-console.log(c_lib.TWO); // print 2
-console.log(c_lib.THREE); // print 3
+var lib = require('module_name');
+console.log(lib.ONE); // print 1
+console.log(lib.TWO); // print 2
+console.log(lib.THREE); // print 3
 ```
 
-#### Types:
+## Supported types:
 
-The table below shows which JavaScript type represent the particular C type.
+The table below shows which JavaScript type represent the particular C/C++ type.
 
-| C type | JS type | Status |
-| - | - | - |
-| void | undefined | solved |
-| char | one length String | solved |
-| int / enum | Number | solved |
-| float / double | Number | solved |
-| _Bool | Boolean | solved |
-| struct / union | Object | solved |
-| char * / char [] | String | solved |
-| int * / int [] | TypedArray | solved |
-| function pointer | Function | solved |
+| C/C++ type | JS type |
+| - | - |
+| void | undefined |
+| char | one length String |
+| int / enum | Number |
+| float / double | Number |
+| _Bool | Boolean |
+| struct / union | Object |
+| char * / char [] | String |
+| int * / int [] | TypedArray |
+| function pointer | Function |
+| class | Object |
 
-Other types are not supported, which means that you need to implement how you would like to use these parts of the C API.
+**NOTE**: Other types are not supported, which means that you need to implement how you would like to use these parts of the C/C++ API.
 
-##### Examples:
+#### Examples:
 
 ##### `void`
 ```c
 void f(void);
 ```
 ```javascript
-var a = c_lib.f(); // 'a' == undefined
+var a = lib.f(); // 'a' == undefined
 ```
 
 ##### `char`
@@ -135,8 +181,8 @@ char c;
 char f(char);
 ```
 ```javascript
-c_lib.c = 'c';
-var a = c_lib.f('b');
+lib.c = 'c';
+var a = lib.f('b');
 ```
 
 ##### `int`
@@ -145,19 +191,19 @@ int i;
 int f(int);
 ```
 ```javascript
-c_lib.i = 42;
-var a = c_lib.f(5);
+lib.i = 42;
+var a = lib.f(5);
 ```
 
 ##### `enum`
 ```c
-typedef enum {A, B, C} c_lib_enum;
-c_lib_enum e;
-c_lib_enum f(c_lib_enum);
+typedef enum {A, B, C} my_enum;
+my_enum e;
+my_enum f(my_enum);
 ```
 ```javascript
-c_lib.e = c_lib.B;
-var a = c_lib.f(c_lib.A);
+lib.e = lib.B;
+var a = lib.f(lib.A);
 ```
 
 ##### `float/double`
@@ -168,10 +214,10 @@ float f(float);
 double g(double);
 ```
 ```javascript
-c_lib.f = 1.5;
-c_lib.d = 2.5;
-var f = c_lib.f(1.5);
-var d = c_lib.g(c_lib.d);
+lib.f = 1.5;
+lib.d = 2.5;
+var f = lib.f(1.5);
+var d = lib.g(lib.d);
 ```
 
 ##### `bool`
@@ -180,11 +226,13 @@ _Bool b;
 _Bool f(_Bool);
 ```
 ```javascript
-c_lib.b = true;
-var a = c_lib.f(false);
+lib.b = true;
+var a = lib.f(false);
 ```
 
 ##### `struct/union`
+
+**C :**
 
 If there is a global struct/union variable, like `s` below, and it has a member, like `i`, you can get its value directly, for example `console.log(c_lib.s.i)`, but you can not set its value directly, so you need to set the struct/union variable through an object.
 
@@ -206,6 +254,10 @@ var s = c_lib.f({c:'c', i:0});
 var u = c_lib.g({i:0});
 ```
 
+**C++ :**
+
+When the language of the API is C++, structs and unions work like classes.
+
 ##### `char*/char[]`
 ```c
 char * c_ptr;
@@ -214,11 +266,11 @@ char* f(char*);
 char* g(char[5]);
 ```
 ```javascript
-c_lib.c_ptr = 'some string';
-// c_lib.c_arr = 'maximum string length is 5'; does NOT work
-c_lib.c_arr = 'wrks';
-var f = c_lib.f('other string');
-var g = c_lib.g('1234');
+lib.c_ptr = 'some string';
+// lib.c_arr = 'maximum string length is 5'; does NOT work
+lib.c_arr = 'works';
+var f = lib.f('other string');
+var g = lib.g('1234');
 ```
 
 ##### `int*/int[]`
@@ -235,14 +287,14 @@ int* g(int[5]);
 var typed_array = new Int32Array(new ArrayBuffer(8), 0, 2);
 typed_array[0] = 10;
 typed_array[1] = 20;
-c_lib.i_ptr = typed_array;
-c_lib.i_ptr = null;
-// c_lib.i_arr = typed_array; does NOT work
-c_lib.i_arr[0] = 1;
-c_lib.i_arr[1] = 2;
-c_lib.i_arr[2] = 3;
-var f = c_lib.f(null); // f is null or TypedArray
-var g = c_lib.g(typed_array);
+lib.i_ptr = typed_array;
+lib.i_ptr = null;
+// lib.i_arr = typed_array; does NOT work
+lib.i_arr[0] = 1;
+lib.i_arr[1] = 2;
+lib.i_arr[2] = 3;
+var f = lib.f(null); // f is null or TypedArray
+var g = lib.g(typed_array);
 ```
 
 ##### `function`
@@ -250,14 +302,14 @@ var g = c_lib.g(typed_array);
 Function pointers supported as parameters. There can be cases when it does not work correctly, if the function will be called asynchronous.
 
 ```c
-typedef int (*callback)(void);
+typedef int (callback)(void);
 
 int f(callback c) {
   return c();
 }
 ```
 ```javascript
-var a = c_lib.f(function () {
+var a = lib.f(function () {
   return 42;
 });
 ```
@@ -265,7 +317,7 @@ var a = c_lib.f(function () {
 Let's see a dummy example, when function pointers work incorrectly.
 
 ```c
-typedef void (*cb)(void);
+typedef void (cb)(void);
 
 cb cb_arr[2];
 
@@ -279,20 +331,39 @@ void bar(void) {
 }
 ```
 ```javascript
-c_lib.foo(function() {
+lib.foo(function() {
   console.log('first callback');
 });
 
-c_lib.foo(function() {
+lib.foo(function() {
   console.log('second callback');
 });
 
 // the second foo call overwrite the first callback function
 // it will print 'second callback', which is not the expected
-c_lib.bar();
+lib.bar();
 ```
 
-### Usage:
+##### `class`
+
+```cpp
+class A {
+  int i = 42;
+public:
+  int get_i() {return i;}
+};
+
+A global_obj; // WIP
+void foo(A);
+A bar(); // WIP
+
+```
+```javascript
+var a = new cpp_lib.A();
+cpp_lib.foo(a);
+```
+
+## Usage:
 
 You can generate a module using the following command:
 
@@ -301,11 +372,20 @@ You can generate a module using the following command:
 $ tools/iotjs_module_generator.py <INPUT_FOLDER>
 ```
 
-The `<INPUT_FOLDER>` should contain the header files and the static library of the C API, and this is a required argument for the script. The script generates four files to the `iotjs/tools/module_generator/output/<INPUT_FOLDER>_module/` folder. A `.h`, `.c`, `.json` and a `.cmake` file. The module name will be `<INPUT_FOLDER>_module`. If you would like to modify how the module should work, you have to make some changes in the generated `.c` file.
+The `<INPUT_FOLDER>` should contain the header files and the static library of the C/C++ API, and this is a required argument for the script. The script generates the source files to the `iotjs/tools/module_generator/output/<INPUT_FOLDER>_module/` folder. The module name will be `<INPUT_FOLDER>_module`. If you would like to modify how the module should work, you have to make some changes in the generated `.c` or `.cpp` file.
 
 #### Optional arguments:
 
 The script has some optional arguments, which are the following:
+
+##### `-x`
+* `c` | `c++`
+
+Specify the language of the API. The default value is `c`.
+
+```bash
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> -x c++
+```
 
 ##### `--out-dir`
 
@@ -376,7 +456,7 @@ other/path/to/other/folder
 $ tools/iotjs_module_generator.py <INPUT_FOLDER> --includes includes.txt
 ```
 
-### Quick example:
+## Quick example:
 
 #### Directory structure:
 
