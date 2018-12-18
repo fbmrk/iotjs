@@ -55,7 +55,7 @@ class ClangASTNodeType:
         return self._type_name
 
     @property
-    def builtin_name(self):
+    def canonical_name(self):
         return self._canonical_type.spelling
 
     def is_bool(self):
@@ -100,13 +100,17 @@ class ClangASTNodeType:
         return self._canonical_type.element_count
 
     def get_pointee_type(self):
-        if self.is_array():
-            return ClangASTNodeType(self._canonical_type.get_array_element_type())
-        elif self.is_pointer():
+        if self.is_pointer():
             return ClangASTNodeType(self._canonical_type.get_pointee())
+        # Array
+        return ClangASTNodeType(self._canonical_type.get_array_element_type())
 
     def get_declaration(self):
         return ClangASTNode(self._canonical_type.get_declaration())
+
+    def get_as_record_decl(self):
+        assert (self.is_record())
+        return ClangRecordDecl(self._canonical_type.get_declaration())
 
 
 # This class is a wrapper for the Cursor type.
@@ -231,7 +235,7 @@ class ClangMacroDef(ClangASTNode):
         return conf.lib.clang_Cursor_isMacroFunctionLike(self._cursor)
 
 
-class ClangClassConstructor:
+class ClangRecordConstructor:
     def __init__(self, cursor_list):
 
         self._parm_decls = {}
@@ -263,9 +267,9 @@ class ClangClassConstructor:
         return self._parm_decls
 
 
-class ClangClassMethod(ClangClassConstructor):
+class ClangRecordMethod(ClangRecordConstructor):
     def __init__(self, name, cursor_list):
-        ClangClassConstructor.__init__(self, cursor_list)
+        ClangRecordConstructor.__init__(self, cursor_list)
 
         self._method_name = name
         return_type = cursor_list[0].type.get_canonical().get_result()
@@ -309,8 +313,8 @@ class ClangRecordDecl(ClangASTNode):
 
         if not constructors:
             self._has_default_constructor = True
-        self._constructor = ClangClassConstructor(constructors)
-        self._methods = [ClangClassMethod(k, v) for k, v in methods.items()]
+        self._constructor = ClangRecordConstructor(constructors)
+        self._methods = [ClangRecordMethod(k, v) for k, v in methods.items()]
 
     @property
     def name(self):
@@ -355,7 +359,7 @@ class ClangTUVisitor:
         self.function_decls = []
         self.var_decls = []
         self.macro_defs = []
-        self.class_decls = []
+        self.record_decls = []
 
     def visit(self):
         children = self.translation_unit.cursor.get_children()
@@ -383,14 +387,14 @@ class ClangTUVisitor:
                 elif cursor.kind == CursorKind.MACRO_DEFINITION:
                     self.macro_defs.append(ClangMacroDef(cursor))
 
-                elif (self.is_cpp and
-                      (cursor.kind == CursorKind.CLASS_DECL or
-                       cursor.kind == CursorKind.STRUCT_DECL or
-                       cursor.kind == CursorKind.UNION_DECL)):
-                    self.class_decls.append(ClangRecordDecl(cursor))
+                elif (cursor.kind == CursorKind.CLASS_DECL or
+                      cursor.kind == CursorKind.STRUCT_DECL or
+                      cursor.kind == CursorKind.UNION_DECL):
+                    self.record_decls.append(ClangRecordDecl(cursor))
 
         if self.is_cpp:
-            self.function_decls = [ClangClassMethod(k, v) for k, v in cpp_funcs.items()]
+            for name, cursor_list in cpp_funcs.items():
+                self.function_decls.append(ClangRecordMethod(name, cursor_list))
 
         # Resolve other macros in macro definition
         for first in self.macro_defs:

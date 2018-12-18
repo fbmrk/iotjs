@@ -25,14 +25,23 @@ typedef enum  {A, B = 10} e;
 float f;
 double d;
 _Bool b;
-typedef struct {int i; char c;} s;
-s test_s;
-typedef union {int i; char c;} u;
-u test_u;
 char* c_ptr;
 char c_arr[5];
 int* i_ptr;
 int i_arr[5];
+
+typedef struct {
+  int i;
+  char c;
+} S;
+
+typedef union {
+  int i;
+  char c;
+} U;
+
+S s;
+U u;
 
 typedef int (func)(void);
 typedef int (*func_ptr)(void);
@@ -44,8 +53,8 @@ e f_enum (e);
 float f_float (float);
 double f_double (double);
 _Bool f_bool (_Bool);
-s f_struct (s);
-u f_union (u);
+S f_struct (S);
+U f_union (U);
 char* f_char_ptr (char*);
 char* f_char_arr (char[5]);
 int* f_int_ptr (int*);

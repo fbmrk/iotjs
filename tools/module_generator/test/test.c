@@ -35,12 +35,12 @@ _Bool f_bool (_Bool a)
   return a;
 }
 
-s f_struct (s a)
+S f_struct (S a)
 {
   return a;
 }
 
-u f_union (u a)
+U f_union (U a)
 {
   return a;
 }

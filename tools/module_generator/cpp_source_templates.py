@@ -15,31 +15,116 @@
 # limitations under the License.
 
 
-# Templates for classes
+# Templates for create/set a C++ variable
 
-# Constructor
-JS_CLASS_CONSTRUCTOR = '''
-// external function for a class constructor
-jerry_value_t {NAME}_js_constructor (const jerry_value_t function_obj,
-                                     const jerry_value_t this_val,
-                                     const jerry_value_t args_p[],
-                                     const jerry_length_t args_cnt)
+# Set a char* variable
+JS_SET_CHAR_PTR = '''
+  // set the value of {NAME}
+  jerry_size_t size = jerry_get_string_size ({JVAL});
+  if ({NAME} == NULL)
+  {{
+    {NAME} = new {TYPE}[size + 1];
+  }}
+  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, size);
+  {NAME}[size] = '\\0';
+'''
+
+# TypedArray to number pointer
+JS_TO_TYPEDARRAY = '''
+  // create a pointer to number from a jerry_value_t
+  {TYPE} * {NAME} = NULL;
+  jerry_length_t {NAME}_byteLength = 0;
+  jerry_length_t {NAME}_byteOffset = 0;
+  jerry_value_t {NAME}_buffer;
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
+    {NAME} = new {TYPE}[{NAME}_byteLength / sizeof({TYPE})];
+    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+  }}
+'''
+
+JS_FREE_BUFFER = '''
+  // write the values back into an arraybuffer from a pointer
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    jerry_arraybuffer_write ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
+    jerry_release_value ({NAME}_buffer);
+    // TODO: if you won't use {NAME} pointer, uncomment the line below
+    //delete[] {NAME};
+  }}
+'''
+
+# Set a number pointer
+JS_SET_TYPEDARRAY = '''
+  // set the value of {NAME}
+  jerry_length_t byteLength = 0;
+  jerry_length_t byteOffset = 0;
+  jerry_value_t buffer;
+  if (jerry_value_is_typedarray ({JVAL}))
+  {{
+    buffer = jerry_get_typedarray_buffer ({JVAL}, &byteOffset, &byteLength);
+    if ({NAME} == NULL)
+    {{
+      {NAME} = new {TYPE}[byteLength / sizeof({TYPE})];
+    }}
+    jerry_arraybuffer_read (buffer, byteOffset, (uint8_t*){NAME}, byteLength);
+    jerry_release_value (buffer);
+  }}
+  else
+  {{
+    {NAME} = NULL;
+  }}
+'''
+
+# Return Object
+JS_RETURN_OBJECT = '''
+  // create object from record
+  jerry_value_t {NAME} = {RECORD}_js_creator({FROM});
+'''
+
+# Alloc record
+JS_ALLOC_RECORD = '''
+  {RECORD}* {NAME} = ({RECORD}*)calloc(1, sizeof({RECORD}));
+'''
+
+
+# Template for check js type
+
+JS_VALUE_IS = '''jerry_value_is_{TYPE} ({JVAL})'''
+
+
+# Templates for record types
+
+# Record destructor
+JS_RECORD_DESTRUCTOR = '''
+void {RECORD}_js_destructor(void* ptr) {{
+    delete ({RECORD}*)ptr;
+}}
+
+static const jerry_object_native_info_t {RECORD}_type_info = {{
+    .free_cb = {RECORD}_js_destructor
+}};
+'''
+
+# Record constructor
+JS_RECORD_CONSTRUCTOR = '''
+// external function for record constructor
+jerry_value_t {RECORD}_js_constructor (const jerry_value_t function_obj,
+                                       const jerry_value_t this_val,
+                                       const jerry_value_t args_p[],
+                                       const jerry_length_t args_cnt)
 {{
-  {NAME}* native_ptr;
+  {RECORD}* native_ptr;
   switch (args_cnt) {{
  {CASE}
      default: {{
-       char* msg = "Wrong argument count for {NAME} constructor.";
+       char* msg = "Wrong argument count for {RECORD} constructor.";
        return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
      }}
   }}
 
-  jerry_value_t js_obj = jerry_create_object();
-  jerry_set_object_native_pointer(js_obj, native_ptr, &{NAME}_type_info);
-
-  {REGIST}
-
-  return js_obj;
+  return {RECORD}_js_creator(native_ptr);
 }}
 '''
 
@@ -69,94 +154,52 @@ JS_CONSTR_CASE = '''
 '''
 
 JS_REGIST_METHOD = '''
-  // set an external function as a property to the object
+  // set record method as a property to the object
   jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{NAME}");
-  jerry_value_t {NAME}_func = jerry_create_external_function ({CLASS}_{NAME}_handler);
+  jerry_value_t {NAME}_func = jerry_create_external_function ({RECORD}_{NAME}_handler);
   jerry_value_t {NAME}_ret = jerry_set_property (js_obj, {NAME}_name, {NAME}_func);
   jerry_release_value ({NAME}_name);
   jerry_release_value ({NAME}_func);
   jerry_release_value ({NAME}_ret);
 '''
 
-JS_REGIST_MEMBER = '''
-  // set a class member as a property to the object
-  jerry_property_descriptor_t {CLASS}_{NAME}_prop_desc;
-  jerry_init_property_descriptor_fields (&{CLASS}_{NAME}_prop_desc);
-  {CLASS}_{NAME}_prop_desc.is_get_defined = true;
-  {CLASS}_{NAME}_prop_desc.is_set_defined = true;
-  {CLASS}_{NAME}_prop_desc.getter = jerry_create_external_function ({CLASS}_{NAME}_getter);
-  {CLASS}_{NAME}_prop_desc.setter = jerry_create_external_function ({CLASS}_{NAME}_setter);
-  jerry_value_t {CLASS}_{NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {CLASS}_{NAME}_return_value = jerry_define_own_property (js_obj, {CLASS}_{NAME}_prop_name, &{CLASS}_{NAME}_prop_desc);
-  jerry_release_value ({CLASS}_{NAME}_return_value);
-  jerry_release_value ({CLASS}_{NAME}_prop_name);
-  jerry_free_property_descriptor_fields (&{CLASS}_{NAME}_prop_desc);
-'''
-
 JS_REGIST_CONST_MEMBER = '''
-  // set a constant class member as a property to the object
-  jerry_property_descriptor_t {CLASS}_{NAME}_prop_desc;
-  jerry_init_property_descriptor_fields (&{CLASS}_{NAME}_prop_desc);
-  {CLASS}_{NAME}_prop_desc.is_value_defined = true;
-  {CLASS}_{NAME}_prop_desc.value = {CLASS}_{NAME}_js;
-  jerry_value_t {CLASS}_{NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {CLASS}_{NAME}_return_value = jerry_define_own_property (js_obj, {CLASS}_{NAME}_prop_name, &{CLASS}_{NAME}_prop_desc);
-  jerry_release_value ({CLASS}_{NAME}_return_value);
-  jerry_release_value ({CLASS}_{NAME}_prop_name);
-  jerry_free_property_descriptor_fields (&{CLASS}_{NAME}_prop_desc);
+  // set a constant record member as a property to the object
+  jerry_property_descriptor_t {RECORD}_{NAME}_prop_desc;
+  jerry_init_property_descriptor_fields (&{RECORD}_{NAME}_prop_desc);
+  {RECORD}_{NAME}_prop_desc.is_value_defined = true;
+  {RECORD}_{NAME}_prop_desc.value = {RECORD}_{NAME}_js;
+  jerry_value_t {RECORD}_{NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
+  jerry_value_t {RECORD}_{NAME}_return_value = jerry_define_own_property (js_obj, {RECORD}_{NAME}_prop_name, &{RECORD}_{NAME}_prop_desc);
+  jerry_release_value ({RECORD}_{NAME}_return_value);
+  jerry_release_value ({RECORD}_{NAME}_prop_name);
+  jerry_free_property_descriptor_fields (&{RECORD}_{NAME}_prop_desc);
 '''
 
-JS_REGIST_NUM_ARR_MEMBER = '''
-  // set a numeric array member as a property to the object
-  jerry_value_t {NAME}_buffer = jerry_create_arraybuffer_external (sizeof({TYPE}) * {SIZE}, (uint8_t*)native_ptr->{NAME}, NULL);
-  jerry_value_t {NAME}_typedarray = jerry_create_typedarray_for_arraybuffer_sz (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer, 0, {SIZE});
-  jerry_property_descriptor_t {NAME}_prop_desc;
-  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
-  {NAME}_prop_desc.is_value_defined = true;
-  {NAME}_prop_desc.value = {NAME}_typedarray;
-  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {NAME}_return_value = jerry_define_own_property (js_obj, {NAME}_prop_name, &{NAME}_prop_desc);
-  jerry_release_value ({NAME}_return_value);
-  jerry_release_value ({NAME}_prop_name);
-  jerry_release_value ({NAME}_buffer);
-  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
-'''
-
-# Destructor
-JS_CLASS_DESTRUCTOR = '''
-void {NAME}_js_destructor(void* void_ptr) {{
-    delete static_cast<{NAME}*>(void_ptr);
-}}
-
-static const jerry_object_native_info_t {NAME}_type_info = {{
-    .free_cb = {NAME}_js_destructor
-}};
-'''
-
-# Method
-JS_CLASS_METHOD = '''
-// external function for a class method
-jerry_value_t {CLASS}_{NAME}_handler (const jerry_value_t function_obj,
-                                      const jerry_value_t this_val,
-                                      const jerry_value_t args_p[],
-                                      const jerry_length_t args_cnt)
+# Record method
+JS_RECORD_METHOD = '''
+// external function for record method
+jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
+                                       const jerry_value_t this_val,
+                                       const jerry_value_t args_p[],
+                                       const jerry_length_t args_cnt)
 {{
   void* void_ptr;
   const jerry_object_native_info_t* type_ptr;
   bool has_ptr = jerry_get_object_native_pointer(this_val, &void_ptr, &type_ptr);
 
-  if (!has_ptr || type_ptr != &{CLASS}_type_info) {{
-    char* msg = "Failed to get native {CLASS} pointer";
+  if (!has_ptr || type_ptr != &{RECORD}_type_info) {{
+    char* msg = "Failed to get native {RECORD} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
-  {CLASS}* native_ptr = static_cast<{CLASS}*>(void_ptr);
+  {RECORD}* native_ptr = ({RECORD}*)(void_ptr);
 
   {RESULT}
   switch (args_cnt) {{
 {CASE}
     default: {{
-      char* msg = "Wrong argument count for {CLASS}.{NAME}().";
+      char* msg = "Wrong argument count for {RECORD}.{NAME}().";
       return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
   }}
@@ -186,41 +229,16 @@ JS_METHOD_CASE_0 = '''
 JS_METHOD_CASE = '''
     case {NUM}: {{
 {CALLS}
-    char* msg = "Wrong argument type for {CLASS}.{NAME}().";
+    char* msg = "Wrong argument type for {RECORD}.{NAME}().";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
-'''
-
-JS_VALUE_IS = '''jerry_value_is_{TYPE} ({JVAL})'''
-
-# Memeber
-JS_CLASS_MEMBER = '''
-// external function for a class method
-jerry_value_t {CLASS}_{NAME} (const jerry_value_t function_obj,
-                      const jerry_value_t this_val,
-                      const jerry_value_t args_p[],
-                      const jerry_length_t args_cnt)
-{{
-  void* void_ptr;
-  const jerry_object_native_info_t* type_ptr;
-  bool has_ptr = jerry_get_object_native_pointer(this_val, &void_ptr, &type_ptr);
-
-  if (!has_ptr || type_ptr != &{CLASS}_type_info) {{
-    char* msg = "Failed to get native {CLASS} pointer";
-    return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
-  }}
-
-  {CLASS}* native_ptr = static_cast<{CLASS}*>(void_ptr);
-{BODY}
-  return ret_val;
-}}
 '''
 
 
 # Templates for C++ functions
 
 # Function
-JS_EXT_FUNC_CPP = '''
+JS_EXT_CPP_FUNC = '''
 // external function
 jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
                               const jerry_value_t this_val,
@@ -267,83 +285,9 @@ JS_FUNC_CASE = '''
 '''
 
 
-# Templates for get/set values
-
-# Set a char* variable
-JS_SET_CHAR_PTR_CPP = '''
-  // set the value of {NAME}
-  jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
-  if (native_ptr->{NAME} == NULL)
-  {{
-    native_ptr->{NAME} = new {TYPE}[{NAME}_size + 1];
-  }}
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)native_ptr->{NAME}, {NAME}_size);
-  native_ptr->{NAME}[{NAME}_size] = '\\0';
-'''
-
-# Set a char[] variable
-JS_SET_CHAR_ARR_CPP = '''
-  // set the value of {NAME}
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*)native_ptr->{NAME}, {SIZE});
-  native_ptr->{NAME}[{SIZE}] = '\\0';
-'''
-
-# TypedArray to number pointer
-JS_TO_TYPEDARRAY_CPP = '''
-  // create a pointer to number from a jerry_value_t
-  {TYPE} * {NAME} = NULL;
-  jerry_length_t {NAME}_byteLength = 0;
-  jerry_length_t {NAME}_byteOffset = 0;
-  jerry_value_t {NAME}_buffer;
-  if (jerry_value_is_typedarray ({JVAL}))
-  {{
-    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
-    {NAME} = new {TYPE}[{NAME}_byteLength / sizeof({TYPE})];
-    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*){NAME}, {NAME}_byteLength);
-  }}
-'''
-
-# Set a number pointer
-JS_SET_TYPEDARRAY_CPP = '''
-  // set the value of {NAME}
-  jerry_length_t {NAME}_byteLength = 0;
-  jerry_length_t {NAME}_byteOffset = 0;
-  jerry_value_t {NAME}_buffer;
-  if (jerry_value_is_typedarray ({JVAL}))
-  {{
-    {NAME}_buffer = jerry_get_typedarray_buffer ({JVAL}, &{NAME}_byteOffset, &{NAME}_byteLength);
-    if (native_ptr->{NAME} == NULL)
-    {{
-      native_ptr->{NAME} = new {TYPE}[{NAME}_byteLength / sizeof({TYPE})];
-    }}
-    jerry_arraybuffer_read ({NAME}_buffer, {NAME}_byteOffset, (uint8_t*)native_ptr->{NAME}, {NAME}_byteLength);
-    jerry_release_value ({NAME}_buffer);
-  }}
-  else
-  {{
-    native_ptr->{NAME} = NULL;
-  }}
-'''
-
-# Object to struct/union/class
-JS_TO_RECORD = '''
-  void* void_ptr;
-  const jerry_object_native_info_t* type_ptr;
-  bool has_ptr = jerry_get_object_native_pointer({JVAL}, &void_ptr, &type_ptr);
-
-  if (!has_ptr || type_ptr != &{CLASS}_type_info) {{
-    char* msg = "Failed to get native {CLASS} pointer";
-    return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
-  }}
-
-  {CLASS}* native_ptr = static_cast<{CLASS}*>(void_ptr);
-  {RECORD} = *native_ptr;
-'''
-
-
 # Templates for the module initialization function
 
-INIT_FUNC_CPP = '''
+INIT_FUNC = '''
 // init function for the module
 extern "C" jerry_value_t Init_{NAME}()
 {{
@@ -353,20 +297,11 @@ extern "C" jerry_value_t Init_{NAME}()
 }}
 '''
 
-INIT_REGIST_CLASS = '''
-  // set a constructor as a property to the module object
-  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{NAME}");
-  jerry_value_t {NAME}_func = jerry_create_external_function ({NAME}_js_constructor);
-  jerry_value_t {NAME}_ret = jerry_set_property (object, {NAME}_name, {NAME}_func);
-  jerry_release_value ({NAME}_name);
-  jerry_release_value ({NAME}_func);
-  jerry_release_value ({NAME}_ret);
-'''
-
 
 # Template for include the right headers
 
 INCLUDE = '''
+#include <cstdlib>
 #include "jerryscript.h"
 #include "{HEADER}"
 '''

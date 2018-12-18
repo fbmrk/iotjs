@@ -49,9 +49,9 @@ def generate_c_source(header, api_headers, dirname, args):
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_binding.h')]
 
-    if args.x == 'c++' and 'classes' not in args.off:
-        for cpp_class in visitor.class_decls:
-            generated_source.append(generator.create_class(cpp_class))
+    if 'records' not in args.off:
+        for record in visitor.record_decls:
+            generated_source.append(generator.create_record(record))
 
     if 'functions' not in args.off:
         for function in visitor.function_decls:
@@ -180,7 +180,7 @@ if __name__ == '__main__':
                         '(default: tools/module_generator/output)')
 
     parser.add_argument('--off', choices=['functions', 'variables', 'enums',
-                                          'macros', 'classes'],
+                                          'macros', 'records'],
         action='append', default=[], help='Turn off source generating.')
 
     parser.add_argument('--no-lib', action='store_true', default=False,
