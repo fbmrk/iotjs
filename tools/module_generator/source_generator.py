@@ -48,6 +48,9 @@ class CSourceGenerator(object):
     def js_to_string(self, _type, name, jval):
         return c.JS_TO_STRING.format(TYPE=_type, NAME=name, JVAL=jval)
 
+    def js_free_string(self, name, jval):
+        return c.JS_FREE_STRING.format(NAME=name, JVAL=jval)
+
     def js_set_char_pointer(self, _type, name, jval):
         return c.JS_SET_CHAR_PTR.format(TYPE=_type, NAME=name, JVAL=jval)
 
@@ -71,8 +74,9 @@ class CSourceGenerator(object):
         return c.JS_SET_RECORD.format(TYPE=_type, NAME=name, JVAL=jval,
                                       RECORD=record)
 
-    def js_to_function(self, func, name, jval):
-        return c.JS_TO_FUNCTION.format(FUNC=func, NAME=name, JVAL=jval)
+    def js_to_function(self, func, name, jval, _type, params):
+        return c.JS_TO_FUNCTION.format(FUNC=func, NAME=name, JVAL=jval,
+                                       TYPE=_type, PARAMS=params)
 
     def js_cb_function(self, func, name, ret_t, params, length, create_val,
                        result, ret):
@@ -271,6 +275,7 @@ class CSourceGenerator(object):
 
     def js_check_type(self, c_type, jval, func):
         _type = ''
+        template = c.JS_CHECK_TYPE
         if c_type.is_char():
             _type = 'string'
         elif c_type.is_number() or c_type.is_enum():
@@ -278,17 +283,19 @@ class CSourceGenerator(object):
         elif c_type.is_record():
             _type = 'object'
         elif c_type.is_function():
+            template = c.JS_CHECK_POINTER
             _type = 'function'
         elif c_type.is_pointer():
+            template = c.JS_CHECK_POINTER
             if c_type.get_pointee_type().is_char():
                 _type = 'string'
             elif c_type.get_pointee_type().is_number():
-                return c.JS_CHECK_TYPEDARRAY.format(JVAL=jval, FUNC=func)
+                _type = 'typedarray'
             elif c_type.get_pointee_type().is_function():
                 _type = 'function'
 
         if _type:
-            return c.JS_CHECK_TYPE.format(TYPE=_type, JVAL=jval, FUNC=func)
+            return template.format(TYPE=_type, JVAL=jval, FUNC=func)
         return ''
 
     def get_val_from_param(self, param, funcname, name, jval):
@@ -296,16 +303,24 @@ class CSourceGenerator(object):
         callback = ''
         if (param.type.is_pointer() and
             param.type.get_pointee_type().is_function()):
-            result = self.js_to_function(funcname, name, jval)
+            func = param.get_as_function()
+            ret_type = func.return_type.name
+            params = ', '.join([p.type.name for p in func.params])
+            result = self.js_to_function(funcname, name, jval, ret_type, params)
             callback = self.create_c_function(param, funcname, name)
         elif param.type.is_function():
-            result = self.js_to_function(funcname, name, jval)
+            func = param.get_as_function()
+            ret_type = func.return_type.name
+            params = ', '.join([p.type.name for p in func.params])
+            result = self.js_to_function(funcname, name, jval, ret_type, params)
             callback = self.create_c_function(param, funcname, name)
         else:
             result = self.js_to_c(param.type, name, jval)
-            if (param.type.is_pointer() and
-                param.type.get_pointee_type().is_number()):
-                buff.append(self.js_free_buffer(name, jval))
+            if param.type.is_pointer():
+                if param.type.get_pointee_type().is_char():
+                    buff.append(self.js_free_string(name, jval))
+                if param.type.get_pointee_type().is_number():
+                    buff.append(self.js_free_buffer(name, jval))
 
         return result, buff, callback
 
@@ -444,6 +459,12 @@ class CppSourceGenerator(CSourceGenerator):
         CSourceGenerator.__init__(self)
         self.class_names = []
 
+    def js_to_string(self, _type, name, jval):
+        return cpp.JS_TO_STRING.format(TYPE=_type, NAME=name, JVAL=jval)
+
+    def js_free_string(self, name, jval):
+        return cpp.JS_FREE_STRING.format(NAME=name, JVAL=jval)
+
     def js_set_char_pointer(self, _type, name, jval):
         return cpp.JS_SET_CHAR_PTR.format(TYPE=_type, NAME=name, JVAL=jval)
 
@@ -472,14 +493,14 @@ class CppSourceGenerator(CSourceGenerator):
         elif c_type.is_record():
             return cpp.JS_VALUE_IS.format(TYPE='object', JVAL=jval)
         elif c_type.is_function():
-            return cpp.JS_VALUE_IS.format(TYPE='function', JVAL=jval)
+            return cpp.JS_POINTER_IS.format(TYPE='function', JVAL=jval)
         elif c_type.is_pointer():
             if c_type.get_pointee_type().is_char():
-                return cpp.JS_VALUE_IS.format(TYPE='string', JVAL=jval)
+                return cpp.JS_POINTER_IS.format(TYPE='string', JVAL=jval)
             elif c_type.get_pointee_type().is_number():
-                return cpp.JS_VALUE_IS.format(TYPE='typedarray', JVAL=jval)
+                return cpp.JS_POINTER_IS.format(TYPE='typedarray', JVAL=jval)
             elif c_type.get_pointee_type().is_function():
-                return cpp.JS_VALUE_IS.format(TYPE='function', JVAL=jval)
+                return cpp.JS_POINTER_IS.format(TYPE='function', JVAL=jval)
         return ''
 
     def js_record_destructor(self, record):

@@ -22,9 +22,13 @@ from common_py import path
 from common_py.system.executor import Executor as ex
 from common_py.system.filesystem import FileSystem as fs
 
-def test_module_generator():
-    module_generator_dir = fs.join(path.TOOLS_ROOT, 'module_generator')
-    test_dir = fs.join(module_generator_dir, 'test')
+module_generator_dir = fs.join(path.TOOLS_ROOT, 'module_generator')
+generator_script = fs.join(path.TOOLS_ROOT, 'iotjs-generate-module.py')
+build_script = fs.join(path.TOOLS_ROOT, 'build.py')
+
+
+def test_c():
+    test_dir = fs.join(module_generator_dir, 'test_c')
     test_c = fs.join(test_dir, 'test.c')
 
     # Compile test.c and make a static library
@@ -33,20 +37,45 @@ def test_module_generator():
                      test_dir + '/test.o'])
 
     # Generate test_module
-    generator_script = fs.join(path.TOOLS_ROOT, 'iotjs-generate-module.py')
-    ex.check_run_cmd(generator_script, [test_dir])
+    ex.check_run_cmd(generator_script, [test_dir, '-x=c'])
 
     # Build iotjs
-    module_dir = fs.join(module_generator_dir, 'output', 'test_module')
-    build_script = fs.join(path.TOOLS_ROOT, 'build.py')
+    module_dir = fs.join(module_generator_dir, 'output', 'test_c_module')
     args = [
     '--external-module=' + module_dir,
-    '--cmake-param=-DENABLE_MODULE_TEST_MODULE=ON',
+    '--cmake-param=-DENABLE_MODULE_TEST_C_MODULE=ON',
     '--jerry-profile=es2015-subset',
     '--clean'
     ]
     ex.check_run_cmd(build_script, args)
 
+    run_test_js(test_dir)
+
+def test_cpp():
+    test_dir = fs.join(module_generator_dir, 'test_cpp')
+    test_cpp = fs.join(test_dir, 'test.cpp')
+
+    # Compile test.c and make a static library
+    ex.check_run_cmd('c++', ['-c', test_cpp, '-o', test_dir + '/test.o'])
+    ex.check_run_cmd('ar', ['-cr', test_dir + '/libtest.a',
+                     test_dir + '/test.o'])
+
+    # Generate test_module
+    ex.check_run_cmd(generator_script, [test_dir, '-x=c++'])
+
+    # Build iotjs
+    module_dir = fs.join(module_generator_dir, 'output', 'test_cpp_module')
+    args = [
+    '--external-module=' + module_dir,
+    '--cmake-param=-DENABLE_MODULE_TEST_CPP_MODULE=ON',
+    '--jerry-profile=es2015-subset',
+    '--clean'
+    ]
+    ex.check_run_cmd(build_script, args)
+
+    run_test_js(test_dir)
+
+def run_test_js(test_dir):
     # Run test.js
     binary = fs.join(path.BUILD_ROOT, 'x86_64-linux', 'debug', 'bin', 'iotjs')
     test_js = fs.join(test_dir, 'test.js')
@@ -54,4 +83,17 @@ def test_module_generator():
 
 
 if __name__ == '__main__':
-    test_module_generator()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-x', choices=['c', 'c++'], action='append',
+        default=[], help='Specify language.')
+    args = parser.parse_args()
+
+    if not args.x:
+        test_c()
+        test_cpp()
+    if 'c' in args.x:
+        test_c()
+    if 'c++' in args.x:
+        test_cpp()

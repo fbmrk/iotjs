@@ -17,11 +17,30 @@
 
 # Templates for create/set a C++ variable
 
+# String to char[]
+JS_TO_STRING = '''
+  // create an array of characters from a jerry_value_t
+  {TYPE} * {NAME} = nullptr;
+  if (jerry_value_is_string ({JVAL}))
+  {{
+    jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
+    {NAME} = new {TYPE}[{NAME}_size + 1];
+    jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
+    {NAME}[{NAME}_size] = '\\0';
+  }}
+'''
+
+JS_FREE_STRING = '''
+  // TODO: if you won't use {NAME} pointer, uncomment the line below
+  //if (jerry_value_is_string ({JVAL}))
+  //  delete[] {NAME};
+'''
+
 # Set a char* variable
 JS_SET_CHAR_PTR = '''
   // set the value of {NAME}
   jerry_size_t size = jerry_get_string_size ({JVAL});
-  if ({NAME} == NULL)
+  if ({NAME} == nullptr)
   {{
     {NAME} = new {TYPE}[size + 1];
   }}
@@ -32,7 +51,7 @@ JS_SET_CHAR_PTR = '''
 # TypedArray to number pointer
 JS_TO_TYPEDARRAY = '''
   // create a pointer to number from a jerry_value_t
-  {TYPE} * {NAME} = NULL;
+  {TYPE} * {NAME} = nullptr;
   jerry_length_t {NAME}_byteLength = 0;
   jerry_length_t {NAME}_byteOffset = 0;
   jerry_value_t {NAME}_buffer;
@@ -64,7 +83,7 @@ JS_SET_TYPEDARRAY = '''
   if (jerry_value_is_typedarray ({JVAL}))
   {{
     buffer = jerry_get_typedarray_buffer ({JVAL}, &byteOffset, &byteLength);
-    if ({NAME} == NULL)
+    if ({NAME} == nullptr)
     {{
       {NAME} = new {TYPE}[byteLength / sizeof({TYPE})];
     }}
@@ -73,7 +92,7 @@ JS_SET_TYPEDARRAY = '''
   }}
   else
   {{
-    {NAME} = NULL;
+    {NAME} = nullptr;
   }}
 '''
 
@@ -92,6 +111,8 @@ JS_ALLOC_RECORD = '''
 # Template for check js type
 
 JS_VALUE_IS = '''jerry_value_is_{TYPE} ({JVAL})'''
+
+JS_POINTER_IS = '''jerry_value_is_{TYPE} ({JVAL}) || jerry_value_is_null ({JVAL})'''
 
 
 # Templates for record types
@@ -119,7 +140,7 @@ jerry_value_t {RECORD}_js_constructor (const jerry_value_t function_obj,
   switch (args_cnt) {{
  {CASE}
      default: {{
-       char* msg = "Wrong argument count for {RECORD} constructor.";
+       char const *msg = "Wrong argument count for {RECORD} constructor.";
        return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
      }}
   }}
@@ -148,7 +169,7 @@ JS_CONSTR_CASE_0 = '''
 JS_CONSTR_CASE = '''
     case {NUM}: {{
 {CALLS}
-    char* msg = "Wrong argument type for {NAME} constructor.";
+    char const *msg = "Wrong argument type for {NAME} constructor.";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
 '''
@@ -189,7 +210,7 @@ jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
   bool has_ptr = jerry_get_object_native_pointer(this_val, &void_ptr, &type_ptr);
 
   if (!has_ptr || type_ptr != &{RECORD}_type_info) {{
-    char* msg = "Failed to get native {RECORD} pointer";
+    char const *msg = "Failed to get native {RECORD} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
@@ -199,7 +220,7 @@ jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
   switch (args_cnt) {{
 {CASE}
     default: {{
-      char* msg = "Wrong argument count for {RECORD}.{NAME}().";
+      char const *msg = "Wrong argument count for {RECORD}.{NAME}().";
       return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
   }}
@@ -229,7 +250,7 @@ JS_METHOD_CASE_0 = '''
 JS_METHOD_CASE = '''
     case {NUM}: {{
 {CALLS}
-    char* msg = "Wrong argument type for {RECORD}.{NAME}().";
+    char const *msg = "Wrong argument type for {RECORD}.{NAME}().";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
 '''
@@ -249,7 +270,7 @@ jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
   switch (args_cnt) {{
 {CASE}
     default: {{
-      char* msg = "Wrong argument count for {NAME}().";
+      char const *msg = "Wrong argument count for {NAME}().";
       return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
   }}
@@ -279,7 +300,7 @@ JS_FUNC_CASE_0 = '''
 JS_FUNC_CASE = '''
     case {NUM}: {{
 {CALLS}
-    char* msg = "Wrong argument type for {NAME}().";
+    char const *msg = "Wrong argument type for {NAME}().";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
     }}
 '''
@@ -325,7 +346,7 @@ MODULE_CMAKE = '''
 set(MODULE_NAME "{NAME}_module")
 add_subdirectory(${{MODULE_DIR}}/src/ ${{MODULE_BINARY_DIR}}/${{MODULE_NAME}})
 link_directories(${{MODULE_DIR}})
-list(APPEND MODULE_LIBS {NAME}_binding {LIBRARY})
+list(APPEND MODULE_LIBS {NAME}_binding {LIBRARY} stdc++)
 '''
 
 CMAKE_LISTS = '''

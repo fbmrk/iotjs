@@ -57,10 +57,24 @@ JS_SET_BOOL = '''
 # String to char[]
 JS_TO_STRING = '''
   // create an array of characters from a jerry_value_t
-  jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
-  {TYPE} {NAME}[{NAME}_size + 1];
-  jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
-  {NAME}[{NAME}_size] = '\\0';
+  {TYPE} * {NAME} = NULL;
+  if (jerry_value_is_string ({JVAL}))
+  {{
+    jerry_size_t {NAME}_size = jerry_get_string_size ({JVAL});
+    {NAME} = malloc ({NAME}_size + 1);
+    if({NAME} == NULL)
+    {{
+      return jerry_create_error (JERRY_ERROR_COMMON, (const jerry_char_t*)"Fail to allocate memory.");
+    }}
+    jerry_string_to_char_buffer ({JVAL}, (jerry_char_t*){NAME}, {NAME}_size);
+    {NAME}[{NAME}_size] = '\\0';
+  }}
+'''
+
+JS_FREE_STRING = '''
+  // TODO: if you won't use {NAME} pointer, uncomment the lines below
+  //if (jerry_value_is_string ({JVAL}))
+  //  free ({NAME});
 '''
 
 # Set a char* variable
@@ -143,7 +157,7 @@ JS_TO_RECORD = '''
   bool {NAME}_has_ptr = jerry_get_object_native_pointer({JVAL}, &{NAME}_void_ptr, &{NAME}_type_ptr);
 
   if (!{NAME}_has_ptr || {NAME}_type_ptr != &{RECORD}_type_info) {{
-    char* msg = "Failed to get native {TYPE} pointer";
+    char const *msg = "Failed to get native {TYPE} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
@@ -158,7 +172,7 @@ JS_SET_RECORD = '''
   bool {RECORD}_has_ptr = jerry_get_object_native_pointer({JVAL}, &{RECORD}_void_ptr, &{RECORD}_type_ptr);
 
   if (!{RECORD}_has_ptr || {RECORD}_type_ptr != &{RECORD}_type_info) {{
-    char* msg = "Failed to get native {RECORD} pointer";
+    char const *msg = "Failed to get native {RECORD} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
@@ -168,8 +182,12 @@ JS_SET_RECORD = '''
 # Function to C function
 JS_TO_FUNCTION = '''
   // create a function pointer from a jerry_value_t
-  {FUNC}_{NAME}_js = {JVAL};
-  void* {NAME} = {FUNC}_{NAME};
+  {TYPE} (*{NAME})({PARAMS}) = NULL;
+  if (jerry_value_is_function({JVAL}))
+  {{
+    {FUNC}_{NAME}_js = {JVAL};
+    {NAME} = {FUNC}_{NAME};
+  }}
 '''
 
 JS_CB_FUNCTION = '''
@@ -299,7 +317,7 @@ jerry_value_t {RECORD}_{NAME} (const jerry_value_t function_obj,
   bool has_ptr = jerry_get_object_native_pointer(this_val, &void_ptr, &type_ptr);
 
   if (!has_ptr || type_ptr != &{RECORD}_type_info) {{
-    char* msg = "Failed to get native {RECORD} pointer";
+    char const *msg = "Failed to get native {RECORD} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
@@ -387,7 +405,7 @@ JS_CHECK_ARG_COUNT = '''
   // check the count of the external function's arguments
   if (args_cnt != {COUNT})
   {{
-    char* msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
+    char const *msg = "Wrong argument count for {FUNC}(), expected {COUNT}.";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
@@ -399,16 +417,16 @@ JS_CHECK_TYPE = '''
   // check the type of a jerry_value_t variable
   if (!jerry_value_is_{TYPE} ({JVAL}))
   {{
-    char* msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
+    char const *msg = "Wrong argument type for {FUNC}(), expected {TYPE}.";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''
 
-JS_CHECK_TYPEDARRAY = '''
+JS_CHECK_POINTER = '''
   // check the type of a jerry_value_t variable
-  if (!jerry_value_is_typedarray ({JVAL}) && !jerry_value_is_null ({JVAL}))
+  if (!jerry_value_is_{TYPE} ({JVAL}) && !jerry_value_is_null ({JVAL}))
   {{
-    char* msg = "Wrong argument type for {FUNC}(), expected typedarray or null.";
+    char const *msg = "Wrong argument type for {FUNC}(), expected {TYPE} or null.";
     return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
   }}
 '''

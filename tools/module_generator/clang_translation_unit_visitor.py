@@ -100,10 +100,11 @@ class ClangASTNodeType:
         return self._canonical_type.element_count
 
     def get_pointee_type(self):
+        if self.is_array():
+            array_type = self._canonical_type.get_array_element_type()
+            return ClangASTNodeType(array_type)
         if self.is_pointer():
             return ClangASTNodeType(self._canonical_type.get_pointee())
-        # Array
-        return ClangASTNodeType(self._canonical_type.get_array_element_type())
 
     def get_declaration(self):
         return ClangASTNode(self._canonical_type.get_declaration())
@@ -168,7 +169,9 @@ class ClangFunctionDecl(ClangASTNode):
 
         self._parm_decls = []
         if cursor.type.kind == TypeKind.TYPEDEF:
-            function_arguments = cursor.type.get_declaration().get_arguments()
+            children = cursor.type.get_declaration().get_children()
+            function_arguments = [child for child in children
+                                  if child.kind == CursorKind.PARM_DECL]
         else:
             function_arguments = cursor.get_arguments()
 

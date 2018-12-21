@@ -67,10 +67,18 @@ int* f_int_arr (int a[5])
 
 int f_func (func f)
 {
-  return f();
+  if (f)
+  {
+    return f();
+  }
+  return 0;
 }
 
 int f_func_ptr (func_ptr f)
 {
-  return f();
+  if (f)
+  {
+    return f();
+  }
+  return 0;
 }
