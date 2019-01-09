@@ -112,7 +112,7 @@ JS_ALLOC_RECORD = '''
 
 JS_VALUE_IS = '''jerry_value_is_{TYPE} ({JVAL})'''
 
-JS_POINTER_IS = '''jerry_value_is_{TYPE} ({JVAL}) || jerry_value_is_null ({JVAL})'''
+JS_POINTER_IS = '''(jerry_value_is_{TYPE} ({JVAL}) || jerry_value_is_null ({JVAL}))'''
 
 
 # Templates for record types

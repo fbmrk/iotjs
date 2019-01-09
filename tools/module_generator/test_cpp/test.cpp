@@ -1,4 +1,3 @@
-#include <iostream>
 #include "test.h"
 
 char c;
@@ -95,4 +94,149 @@ int f_func_ptr (func_ptr f)
     return f();
   }
   return 0;
+}
+
+char Test::get_c()
+{
+  return _c;
+}
+
+void Test::set_c(char c)
+{
+  _c = c;
+}
+
+int Test::get_i()
+{
+  return _i;
+}
+
+void Test::set_i(int i)
+{
+  _i = i;
+}
+
+float Test::get_f()
+{
+  return _f;
+}
+
+void Test::set_f(float f)
+{
+  _f = f;
+}
+
+double Test::get_d()
+{
+  return _d;
+}
+
+void Test::set_d(double d)
+{
+  _d = d;
+}
+
+bool Test::get_b()
+{
+  return _b;
+}
+
+void Test::set_b(bool b)
+{
+  _b = b;
+}
+
+char* Test::get_c_ptr()
+{
+  return _c_ptr;
+}
+
+void Test::set_c_ptr(char* c_ptr, int size)
+{
+  if (_c_ptr)
+  {
+    delete _c_ptr;
+  }
+  _c_ptr = new char[sizeof(char) * size + 1];
+  for (int i = 0; i < size; i++)
+  {
+    _c_ptr[i] = c_ptr[i];
+  }
+  _c_ptr[size] = '\0';
+}
+
+char* Test::get_c_arr()
+{
+  return _c_arr;
+}
+
+void Test::set_c_arr(char c_arr[5])
+{
+  for (int i = 0; i < 4; i++)
+  {
+    _c_arr[i] = c_arr[i];
+  }
+}
+
+int* Test::get_i_ptr()
+{
+  return _i_ptr;
+}
+
+void Test::set_i_ptr(int* i_ptr, int size)
+{
+  if (_i_ptr)
+  {
+    delete _i_ptr;
+  }
+  _i_ptr = new int[sizeof(int) * size];
+  for (int i = 0; i < size; i++)
+  {
+    _i_ptr[i] = i_ptr[i];
+  }
+}
+
+int* Test::get_i_arr()
+{
+  return _i_arr;
+}
+
+void Test::set_i_arr(int i_arr[5])
+{
+  for (int i = 0; i < 5; i++)
+  {
+    _i_arr[i] = i_arr[i];
+  }
+}
+
+S Test::get_s()
+{
+  return _s;
+}
+
+void Test::set_s(S s)
+{
+  _s.i = s.i;
+  _s.c = s.c;
+}
+
+U Test::get_u()
+{
+  return _u;
+}
+
+void Test::set_u(U u)
+{
+  _u.i = u.i;
+  _u.c = u.c;
+}
+
+O Test::get_o()
+{
+  return _o;
+}
+
+void Test::set_o(O o)
+{
+  _o = o;
 }

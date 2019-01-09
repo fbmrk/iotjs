@@ -60,3 +60,68 @@ int* f_int_ptr (int*);
 int* f_int_arr (int[5]);
 int f_func (func);
 int f_func_ptr (func_ptr);
+
+class O {
+  int _i;
+public:
+  O(): _i(42) {}
+  int get_i() {
+    return _i;
+  }
+  void set_i(int i) {
+    _i = i;
+  }
+};
+
+class Test {
+  char _c;
+  int _i;
+  float _f;
+  double _d;
+  bool _b;
+  char* _c_ptr;
+  char _c_arr[5];
+  int* _i_ptr;
+  int _i_arr[5];
+  S _s;
+  U _u;
+  O _o;
+public:
+  char c;
+  int i;
+  float f;
+  double d;
+  bool b;
+  char* c_ptr;
+  char c_arr[5];
+  int* i_ptr;
+  int i_arr[5];
+  S s;
+  U u;
+  O o;
+
+  char get_c();
+  void set_c(char);
+  int get_i();
+  void set_i(int);
+  float get_f();
+  void set_f(float);
+  double get_d();
+  void set_d(double);
+  bool get_b();
+  void set_b(bool);
+  char* get_c_ptr();
+  void set_c_ptr(char*, int);
+  char* get_c_arr();
+  void set_c_arr(char[5]);
+  int* get_i_ptr();
+  void set_i_ptr(int*, int);
+  int* get_i_arr();
+  void set_i_arr(int[5]);
+  S get_s();
+  void set_s(S);
+  U get_u();
+  void set_u(U);
+  O get_o();
+  void set_o(O);
+};

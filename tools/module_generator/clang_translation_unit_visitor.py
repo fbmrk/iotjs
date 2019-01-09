@@ -350,11 +350,11 @@ class ClangRecordDecl(ClangASTNode):
 class ClangTUVisitor:
     def __init__(self, lang, header, api_headers, args):
         # TODO: Avoid hard-coding paths and args in general.
-        Config.set_library_file('libclang-5.0.so.1')
+        Config.set_library_file('libclang-6.0.so.1')
         index = Index.create()
 
         self.is_cpp = True if lang == 'c++' else False
-        self.clang_args = ['-x', lang, '-I/usr/include/clang/5.0/include/']
+        self.clang_args = ['-x', lang]
         self.translation_unit = index.parse(header, args + self.clang_args,
                                             options=1)
         self.api_headers = api_headers

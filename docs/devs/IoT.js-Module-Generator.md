@@ -20,16 +20,16 @@ This tool generates a JS module from a C/C++ API, and you can use it in IoT.js l
 #### Clang library:
 
 ```bash
-apt install libclang1-5.0
+apt install libclang1-6.0
 ```
 
 #### Python binding for Clang:
 
 ```bash
-apt install python-clang-5.0
+apt install python-clang-6.0
 ```
 
-(The tool has been tested only with the 5.0 version.)
+(The tool has been tested with the 5.0 and 6.0 versions.)
 
 
 ## Features:
@@ -91,9 +91,7 @@ cpp_lib.foo(42);
 
 The global variables of the C/C++ library are also represented as properties. If there is a declaration, like `int a;` in the C library, then the object has a property with the name `a`, and you can get and set its value, but if there is a definition, like `const int b = 42;` you can only read the value from the property and you can not modify it.
 
-**C :**
-
-C header:
+C/C++ header:
 ```c
 int i;
 ```
@@ -104,8 +102,6 @@ var lib = require('module_name');
 lib.i = 1; // set the value of 'i'
 console.log(lib.i); // print 1
 ```
-
-**C++ [WIP]**
 
 #### Enums:
 
@@ -150,18 +146,33 @@ console.log(lib.THREE); // print 3
 
 The table below shows which JavaScript type represent the particular C/C++ type.
 
+### Fundamental types:
+
 | C/C++ type | JS type |
 | - | - |
 | void | undefined |
 | char | one length String |
 | int / enum | Number |
 | float / double | Number |
-| _Bool | Boolean |
-| struct / union | Object |
-| char * / char [] | String |
-| int * / int [] | TypedArray |
-| function pointer | Function |
-| class | Object |
+| _Bool / bool | Boolean |
+
+### Pointer types:
+
+If there is a char or int pointer in a native function's parameter list and you call this function from JavaScript with a String or TypedArray the binding layer alloc memory for the native pointers. If after the native call the pointers won't be used you should modify the source code of the binding layer and free them.
+
+| C/C++ type | JS type |
+| - | - |
+| char * / char [] | String / Null |
+| int * / int [] | TypedArray / Null |
+| function pointer | Function / Null |
+
+### Record types:
+
+If you would like to create a record type variable you have to call a constructor through the library object.
+
+| C/C++ type | JS type |
+| - | - |
+| struct / union / class | Object |
 
 **NOTE**: Other types are not supported, which means that you need to implement how you would like to use these parts of the C/C++ API.
 
@@ -230,35 +241,10 @@ lib.b = true;
 var a = lib.f(false);
 ```
 
-##### `struct/union`
-
-**C :**
-
-If there is a global struct/union variable, like `s` below, and it has a member, like `i`, you can get its value directly, for example `console.log(c_lib.s.i)`, but you can not set its value directly, so you need to set the struct/union variable through an object.
-
-```c
-typedef struct {int i; char c;} S;
-typedef union {int i; char c;} U;
-S s;
-U u;
-S f(S);
-U g(U);
-```
-```javascript
-// c_lib.s.i = 42; does NOT work
-c_lib.s = {i:42};
-c_lib.s = {i:42, c:'a'};
-c_lib.u = {i:42};
-c_lib.u = {c:'a'};
-var s = c_lib.f({c:'c', i:0});
-var u = c_lib.g({i:0});
-```
-
-**C++ :**
-
-When the language of the API is C++, structs and unions work like classes.
-
 ##### `char*/char[]`
+
+If there is global pointer to a char, its value could be `null` or a `String`.
+
 ```c
 char * c_ptr;
 char c_arr[6];
@@ -267,9 +253,9 @@ char* g(char[5]);
 ```
 ```javascript
 lib.c_ptr = 'some string';
-// lib.c_arr = 'maximum string length is 5'; does NOT work
+// lib.c_arr = 'maximum string length is 5'; NOT WORK
 lib.c_arr = 'works';
-var f = lib.f('other string');
+var f = lib.f('other string'); // returned value can be null or String
 var g = lib.g('1234');
 ```
 
@@ -289,11 +275,11 @@ typed_array[0] = 10;
 typed_array[1] = 20;
 lib.i_ptr = typed_array;
 lib.i_ptr = null;
-// lib.i_arr = typed_array; does NOT work
+// lib.i_arr = typed_array; NOT WORK
 lib.i_arr[0] = 1;
 lib.i_arr[1] = 2;
 lib.i_arr[2] = 3;
-var f = lib.f(null); // f is null or TypedArray
+var f = lib.f(null); // returned value can be null or TypedArray
 var g = lib.g(typed_array);
 ```
 
@@ -344,23 +330,55 @@ lib.foo(function() {
 lib.bar();
 ```
 
-##### `class`
+##### `struct / union / class`
+
+If there is a global struct / union / class variable, like `s` below, and it has a member, like `i`, you can get its value directly, for example `console.log(lib.s.i)`, but you can not set its value directly, so you need to set the struct/union/class variable through an object.
 
 ```cpp
-class A {
+typedef struct {
+  int i;
+  char c;
+} S;
+
+typedef union {
+  int i;
+  char c;
+} U;
+
+class C {
   int i = 42;
 public:
   int get_i() {return i;}
 };
 
-A global_obj; // WIP
-void foo(A);
-A bar(); // WIP
-
+S s;
+U u;
+C c;
+S f(S);
+U g(U);
+C h(C);
 ```
 ```javascript
-var a = new cpp_lib.A();
-cpp_lib.foo(a);
+var s = new lib.S();
+var u = new lib.U();
+var c = new lib.C();
+
+s.i = 42;
+s.c = 's';
+lib.s = s; // OK
+// lib.s.i = 42; NOT WORK
+
+// var o = {
+//   i: 42,
+//   c: 'o'
+// }
+//
+// lib.f(o); NOT WORK 'o' is not a valid S type object
+var other_s = lib.f(s);
+var other_u = lib.g(u);
+var other_c = lib.h(c);
+
+console.log(lib.c.get_i());
 ```
 
 ## Usage:
