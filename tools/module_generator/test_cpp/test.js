@@ -281,5 +281,20 @@ assert.equal(test.get_o().get_i(), 42);
 test.set_o(o);
 assert.equal(test.get_o().get_i(), 100);
 
+// NAMESPACE
+test_ns_A = new lib.test_ns.A();
+assert.equal(test_ns_A.foo(), 1);
+test_ns_nested_ns_A = new lib.test_ns.nested_ns.A();
+assert.equal(test_ns_nested_ns_A.foo(), 2);
+
+with (lib.test_ns) {
+  test_ns_A = new A();
+  assert.equal(test_ns_A.foo(), 1);
+
+  with (nested_ns) {
+    test_ns_nested_ns_A = new A();
+    assert.equal(test_ns_nested_ns_A.foo(), 2);
+  }
+}
 
 console.log('Test Run Succeeded!');

@@ -120,7 +120,7 @@ JS_POINTER_IS = '''(jerry_value_is_{TYPE} ({JVAL}) || jerry_value_is_null ({JVAL
 # Record destructor
 JS_RECORD_DESTRUCTOR = '''
 void {RECORD}_js_destructor(void* ptr) {{
-    delete ({RECORD}*)ptr;
+    delete ({TYPE}*)ptr;
 }}
 
 static const jerry_object_native_info_t {RECORD}_type_info = {{
@@ -136,7 +136,7 @@ jerry_value_t {RECORD}_js_constructor (const jerry_value_t function_obj,
                                        const jerry_value_t args_p[],
                                        const jerry_length_t args_cnt)
 {{
-  {RECORD}* native_ptr;
+  {TYPE}* native_ptr;
   switch (args_cnt) {{
  {CASE}
      default: {{
@@ -214,7 +214,7 @@ jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
 
-  {RECORD}* native_ptr = ({RECORD}*)(void_ptr);
+  {TYPE}* native_ptr = ({TYPE}*)(void_ptr);
 
   {RESULT}
   switch (args_cnt) {{
@@ -312,7 +312,6 @@ INIT_FUNC = '''
 // init function for the module
 extern "C" jerry_value_t Init_{NAME}()
 {{
-  jerry_value_t object = jerry_create_object();
 {BODY}
   return object;
 }}

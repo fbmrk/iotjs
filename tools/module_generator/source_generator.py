@@ -22,9 +22,30 @@ class CSourceGenerator(object):
         self.function_names = []
         self.record_names = []
         self.variable_names = []
+        self.enums = []
         self.constant_variables = []
         self.number_arrays = []
+        self.namespace = []
+        self.macros = []
+        self.init_func_body = []
 
+    @property
+    def ns_name(self):
+        if self.namespace:
+            return '_'.join(self.namespace) + '_'
+        return ''
+
+    @property
+    def parent_ns_name(self):
+        if self.namespace[:-1]:
+            return '_'.join(self.namespace[:-1]) + '_'
+        return ''
+
+    @property
+    def scope_name(self):
+        if self.namespace:
+            return '::'.join(self.namespace) + '::'
+        return ''
 
     # methods for create/set a C variable
     def js_to_char(self, _type, name, jval):
@@ -101,8 +122,8 @@ class CSourceGenerator(object):
             elif pointee.is_number():
                 return self.js_to_num_pointer(pointee.name, name, jval)
         elif c_type.is_record():
-            record = c_type.get_as_record_decl()
-            return self.js_to_record(c_type.name, name, jval, record.name)
+            record = self.ns_name + c_type.get_as_record_decl().name
+            return self.js_to_record(c_type.name, name, jval, record)
 
         return self.js_to_unsupported(c_type.name, name)
 
@@ -127,8 +148,8 @@ class CSourceGenerator(object):
                 elif pointee.is_number():
                     return self.js_set_num_pointer(pointee.name, name, jval)
         elif c_type.is_record():
-            record = c_type.get_as_record_decl()
-            return self.js_set_record(c_type.name, name, jval, record.name)
+            record = self.ns_name + c_type.get_as_record_decl().name
+            return self.js_set_record(c_type.name, name, jval, record)
 
         return self.js_to_unsupported(c_type.name, name)
 
@@ -176,8 +197,8 @@ class CSourceGenerator(object):
             elif pointee.is_number():
                 return self.num_pointer_to_js(name, cval, pointee.name)
         elif c_type.is_record():
-            record = c_type.get_as_record_decl()
-            return self.record_to_js(name, cval, c_type.name, record.name)
+            record = self.ns_name + c_type.get_as_record_decl().name
+            return self.record_to_js(name, cval, c_type.name, record)
 
         return self.unsupported_to_js(name, cval)
 
@@ -210,9 +231,10 @@ class CSourceGenerator(object):
         set_result += self.js_set_c(member.type, name, 'args_p[0]')
         set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
 
-        getter = self.js_record_member(record.type.name, record.name,
+        record_name = self.ns_name + record.name
+        getter = self.js_record_member(record.type.name, record_name,
                                        member.name + '_getter', get_result)
-        setter = self.js_record_member(record.type.name, record.name,
+        setter = self.js_record_member(record.type.name, record_name,
                                        member.name + '_setter', set_result)
 
         return getter + setter
@@ -378,79 +400,132 @@ class CSourceGenerator(object):
             return ''
         self.variable_names.append(var.name)
 
-        get_result = self.c_to_js(var.type, var.name, 'ret_val')
+        ns_name = self.ns_name + var.name
+        scope_name = self.scope_name + var.name
+
+        get_result = self.c_to_js(var.type, scope_name, 'ret_val')
         set_result = self.js_check_type(var.type, 'args_p[0]',
-                                        var.name + '_setter')
-        set_result += self.js_set_c(var.type, var.name, 'args_p[0]')
+                                        ns_name + '_setter')
+        set_result += self.js_set_c(var.type, scope_name, 'args_p[0]')
         set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
 
-        getter = self.js_ext_func(var.name + '_getter', get_result)
-        setter = self.js_ext_func(var.name + '_setter', set_result)
+        getter = self.js_ext_func(ns_name + '_getter', get_result)
+        setter = self.js_ext_func(ns_name + '_setter', set_result)
 
         return getter + setter
 
     def init_func(self, name, body):
         return c.INIT_FUNC.format(NAME=name, BODY=body)
 
-    def init_regist_func(self, name):
-        return c.INIT_REGIST_FUNC.format(NAME=name)
+    def init_regist_func(self, name, object, func):
+        return c.INIT_REGIST_FUNC.format(NAME=name, OBJECT=object, FUNC=func)
 
-    def init_regist_record(self, name):
-        return c.INIT_REGIST_RECORD.format(NAME=name)
+    def init_regist_record(self, name, object, record):
+        return c.INIT_REGIST_RECORD.format(NAME=name, OBJECT=object,
+                                           RECORD=record)
 
-    def init_regist_enum(self, enum):
-        return c.INIT_REGIST_ENUM.format(ENUM=enum)
+    def init_regist_enum(self, name, object, ref, enum):
+        return c.INIT_REGIST_ENUM.format(NAME=name, OBJECT=object, REF=ref,
+                                         ENUM=enum)
 
-    def init_regist_value(self, name):
-        return c.INIT_REGIST_VALUE.format(NAME=name)
+    def init_regist_value(self, name, object, value):
+        return c.INIT_REGIST_VALUE.format(NAME=name, OBJECT=object, VALUE=value)
 
-    def init_regist_const(self, name):
-        return c.INIT_REGIST_CONST.format(NAME=name)
+    def init_regist_const(self, name, object, value):
+        return c.INIT_REGIST_CONST.format(NAME=name, OBJECT=object, VALUE=value)
 
-    def init_regist_num_arr(self, name, _type, size):
-        return c.INIT_REGIST_NUM_ARR.format(NAME=name, TYPE=_type, SIZE=size,
+    def init_regist_num_arr(self, name, object, ref, arr, _type, size):
+        return c.INIT_REGIST_NUM_ARR.format(NAME=name, OBJECT=object, REF=ref,
+                                            ARR=arr, TYPE=_type, SIZE=size,
                                             ARRAY_TYPE=c.TYPEDARRAYS[_type])
 
-    def create_init_function(self, dirname, enums, macros, init_function = []):
+    def init_create_object(self, name):
+        return c.INIT_CREATE_OBJECT.format(NAME=name)
+
+    def init_regist_object(self, name, ref, object):
+        return c.INIT_REGIST_OBJECT.format(NAME=name, REF=ref, OBJECT=object)
+
+    def create_ns_obj(self):
+        self.init_func_body.append(self.init_create_object(self.ns_name))
+
+    def regist_ns_obj(self):
+        if self.namespace:
+            name = self.ns_name
+            ref = self.namespace[-1]
+            object = '{}object'.format(self.parent_ns_name)
+            self.init_func_body.append(self.init_regist_object(name, ref,
+                                                               object))
+
+    def create_init_function_body(self):
+        object = '{}object'.format(self.ns_name)
 
         for funcname in self.function_names:
-            init_function.append(self.init_regist_func(funcname))
+            name = self.ns_name + funcname
+            self.init_func_body.append(self.init_regist_func(name, object,
+                                                             funcname))
 
         for record in self.record_names:
-            init_function.append(self.init_regist_record(record))
+            name = self.ns_name + record
+            self.init_func_body.append(self.init_regist_record(name, object,
+                                                               record))
 
         for varname in self.variable_names:
-            init_function.append(self.init_regist_value(varname))
+            name = self.ns_name + varname
+            self.init_func_body.append(self.init_regist_value(name, object,
+                                                              varname))
 
-        for num_array in self.number_arrays:
-            type_name = num_array.type.get_array_type().name
-            size = num_array.type.get_array_size()
-            init_function.append(self.init_regist_num_arr(num_array.name,
-                                                          type_name, size))
+        for array in self.number_arrays:
+            name = self.ns_name + array.name
+            ref = self.scope_name + array.name
+            typename = array.type.get_array_type().name
+            size = array.type.get_array_size()
+            self.init_func_body.append(self.init_regist_num_arr(name, object,
+                                                                ref, array.name,
+                                                                typename, size))
 
         for var in self.constant_variables:
-            name = var.name
-            init_function.append(self.c_to_js(var.type, name, name + '_js'))
-            init_function.append(self.init_regist_const(var.name))
+            name = self.ns_name + var.name
+            ref = self.scope_name + var.name
+            jval = '{}_js'.format(name)
+            self.init_func_body.append(self.c_to_js(var.type, ref, jval))
+            self.init_func_body.append(self.init_regist_const(name, object,
+                                                              var.name))
 
-        for enum in enums:
-            init_function.append(self.init_regist_enum(enum))
+        for enum in self.enums:
+            name = self.ns_name + enum
+            ref = self.scope_name + enum
+            self.init_func_body.append(self.init_regist_enum(name, object, ref,
+                                                             enum))
 
-        for macro in macros:
+        for macro in self.macros:
             name = macro.name
+            jval = '{}_js'.format(name)
             if macro.is_char():
-                init_function.append('  char {N}_value = {N};'.format(N=name))
-                init_function.append(self.char_to_js(name + '_js',
-                                                     name + '_value'))
-                init_function.append(self.init_regist_const(name))
+                create_val = '  char {N}_value = {N};'.format(N=name)
+                value = '{}_value'.format(name)
+                self.init_func_body.append(create_val)
+                self.init_func_body.append(self.char_to_js(jval, value))
+                self.init_func_body.append(self.init_regist_const(name, object,
+                                                                  name))
             elif macro.is_string():
-                init_function.append(self.string_to_js(name + '_js', name))
-                init_function.append(self.init_regist_const(name))
+                self.init_func_body.append(self.string_to_js(jval, name))
+                self.init_func_body.append(self.init_regist_const(name, object,
+                                                                  name))
             elif macro.is_number():
-                init_function.append(self.number_to_js(name + '_js', name))
-                init_function.append(self.init_regist_const(name))
+                self.init_func_body.append(self.number_to_js(jval, name))
+                self.init_func_body.append(self.init_regist_const(name, object,
+                                                                  name))
 
-        return self.init_func(dirname, ('\n').join(init_function))
+        del self.function_names[:]
+        del self.record_names[:]
+        del self.variable_names[:]
+        del self.number_arrays[:]
+        del self.constant_variables[:]
+        del self.enums[:]
+        del self.macros[:]
+
+    def create_init_function(self, dirname):
+        return self.init_func(dirname, ('\n').join(self.init_func_body))
 
 
 
@@ -503,11 +578,12 @@ class CppSourceGenerator(CSourceGenerator):
                 return cpp.JS_POINTER_IS.format(TYPE='function', JVAL=jval)
         return ''
 
-    def js_record_destructor(self, record):
-        return cpp.JS_RECORD_DESTRUCTOR.format(RECORD=record)
+    def js_record_destructor(self, _type, record):
+        return cpp.JS_RECORD_DESTRUCTOR.format(TYPE=_type, RECORD=record)
 
-    def js_record_constructor(self, record, case):
-        return cpp.JS_RECORD_CONSTRUCTOR.format(RECORD=record, CASE=case)
+    def js_record_constructor(self, _type, record, case):
+        return cpp.JS_RECORD_CONSTRUCTOR.format(TYPE=_type, RECORD=record,
+                                                CASE=case)
 
     def js_constr_call(self, condition, get_val, name, params, free):
         return cpp.JS_CONSTR_CALL.format(CONDITION=condition, GET_VAL=get_val,
@@ -525,8 +601,8 @@ class CppSourceGenerator(CSourceGenerator):
     def js_regist_const_member(self, record, name):
         return cpp.JS_REGIST_CONST_MEMBER.format(RECORD=record, NAME=name)
 
-    def js_record_method(self, record, name, result, case, ret_val):
-        return cpp.JS_RECORD_METHOD.format(RECORD=record, NAME=name,
+    def js_record_method(self, record, name, _type, result, case, ret_val):
+        return cpp.JS_RECORD_METHOD.format(RECORD=record, NAME=name, TYPE=_type,
                                            RESULT=result, CASE=case,
                                            RET_VAL=ret_val)
 
@@ -559,8 +635,10 @@ class CppSourceGenerator(CSourceGenerator):
 
     def create_record(self, record):
         name = record.name
+        ns_name = self.ns_name + name
+        record_type = record.type.name
         self.record_names.append(name)
-        result = [self.js_record_destructor(name)]
+        result = [self.js_record_destructor(record.type.name, ns_name)]
         regist = []
 
         self.constant_members = []
@@ -573,7 +651,7 @@ class CppSourceGenerator(CSourceGenerator):
             else:
                 get_set = self.create_member_getter_setter(member, record)
                 result.append(get_set)
-                regist.append(self.js_regist_member(name, member.name))
+                regist.append(self.js_regist_member(ns_name, member.name))
 
         for member in self.constant_members:
             member_name = name + '_' + member.name + '_js'
@@ -588,22 +666,23 @@ class CppSourceGenerator(CSourceGenerator):
                                                         size))
 
         for method in record.methods:
-            result.append(self.create_ext_function(method, name,
+            result.append(self.create_ext_function(method, name, record_type,
                                                    is_method=True))
-            regist.append(self.js_regist_method(name, method.name))
+            regist.append(self.js_regist_method(ns_name, method.name))
 
         cases = self.create_ext_function(record.constructor, name,
                                          is_constructor=True)
 
         regist = ('\n').join(regist)
-        result.append(self.js_record_creator(record.type.name, name, regist))
-        result.append(self.js_record_constructor(name, cases))
+        result.append(self.js_record_creator(record_type, ns_name, regist))
+        result.append(self.js_record_constructor(record_type, ns_name, cases))
 
         return '\n'.join(result)
 
-    def create_ext_function(self, func, record_name = None,
+    def create_ext_function(self, func, record_name = None, record_type = None,
                             is_constructor = False, is_method = False):
         name = func.name if not is_constructor else record_name
+        scope_name = self.scope_name + name
         cases = []
         callbacks = []
         if not is_constructor:
@@ -616,14 +695,14 @@ class CppSourceGenerator(CSourceGenerator):
                 result = 'result = '
 
         if is_constructor and (0 in func.params or not func.params):
-            cases.append(self.js_constr_case_0(name))
+            cases.append(self.js_constr_case_0(scope_name))
             if func.params:
                 del func.params[0]
         elif is_method and 0 in func.params:
             cases.append(self.js_method_case_0(result, name))
             del func.params[0]
         elif 0 in func.params:
-            cases.append(self.js_func_case_0(result, name))
+            cases.append(self.js_func_case_0(result, scope_name))
             del func.params[0]
 
         for parm_len, param_lists in func.params.items():
@@ -650,7 +729,7 @@ class CppSourceGenerator(CSourceGenerator):
 
                 if is_constructor:
                     calls.append(self.js_constr_call(condition, get_val,
-                                                     name, native_params,
+                                                     scope_name, native_params,
                                                      free_buffers))
                 elif is_method:
                     calls.append(self.js_method_call(condition, get_val, result,
@@ -658,7 +737,7 @@ class CppSourceGenerator(CSourceGenerator):
                                                      free_buffers))
                 else:
                     calls.append(self.js_func_call(condition, get_val, result,
-                                                   name, native_params,
+                                                   scope_name, native_params,
                                                    free_buffers))
             calls = ('\n').join(calls)
             if is_constructor:
@@ -681,19 +760,20 @@ class CppSourceGenerator(CSourceGenerator):
                 result = '{T}* result = new {T}();'.format(T=ret_type.name)
             else:
                 result = self.js_alloc_record(ret_type.name, 'result')
-            ret_val = self.js_return_object('ret_val', ret_type.name, 'result')
+            ns_name = self.ns_name + record.name
+            ret_val = self.js_return_object('ret_val', ns_name, 'result')
         else:
             if not ret_type.is_void():
                 result = '{} result;'.format(ret_type.name)
             ret_val = self.c_to_js(ret_type, 'result', 'ret_val')
 
         if is_method:
-            return self.js_record_method(record_name, name, result, cases,
-                                         ret_val)
+            return self.js_record_method(self.ns_name + record_name, name,
+                                         record_type, result, cases, ret_val)
         else:
             self.function_names.append(name)
-            return callbacks + self.js_ext_cpp_func(name, result, cases,
-                                                    ret_val)
+            return callbacks + self.js_ext_cpp_func(self.ns_name + name, result,
+                                                    cases, ret_val)
 
     def init_func(self, name, body):
         return cpp.INIT_FUNC.format(NAME=name, BODY=body)

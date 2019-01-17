@@ -49,29 +49,38 @@ def generate_c_source(header, api_headers, dirname, args):
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_binding.h')]
 
-    if 'records' not in args.off:
-        for record in visitor.record_decls:
-            generated_source.append(generator.create_record(record))
-
-    if 'functions' not in args.off:
-        for function in visitor.function_decls:
-            generated_source.append(generator.create_ext_function(function))
-
-    enums = []
-    if 'enums' not in args.off:
-        for decl in visitor.enum_constant_decls:
-            enums += decl.enums
-
-    if 'variables' not in args.off:
-        for var in visitor.var_decls:
-            generated_source.append(generator.create_getter_setter(var))
-
-    macros = []
     if 'macros' not in args.off:
-        macros = visitor.macro_defs
+        generator.macros = visitor.macro_defs
 
-    generated_source.append(generator.create_init_function(dirname, enums,
-                                                           macros))
+    def visit_namespace(namespace):
+        generator.create_ns_obj()
+        if 'records' not in args.off:
+            for record in namespace.record_decls:
+                generated_source.append(generator.create_record(record))
+
+        if 'functions' not in args.off:
+            for function in namespace.function_decls:
+                generated_source.append(generator.create_ext_function(function))
+
+        if 'enums' not in args.off:
+            for decl in namespace.enum_constant_decls:
+                generator.enums += decl.enums
+
+        if 'variables' not in args.off:
+            for var in namespace.var_decls:
+                generated_source.append(generator.create_getter_setter(var))
+
+        generator.create_init_function_body()
+
+        for ns in namespace.namespaces:
+            generator.namespace.append(ns.name)
+            visit_namespace(ns)
+            generator.regist_ns_obj()
+            generator.namespace.pop()
+
+    visit_namespace(visitor)
+
+    generated_source.append(generator.create_init_function(dirname))
 
     return ('\n').join(generated_source)
 

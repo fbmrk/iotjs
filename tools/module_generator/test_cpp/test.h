@@ -125,3 +125,16 @@ public:
   O get_o();
   void set_o(O);
 };
+
+namespace test_ns {
+  namespace nested_ns {
+    class A {
+    public:
+      int foo();
+    };
+  }
+  class A {
+  public:
+    int foo();
+  };
+}

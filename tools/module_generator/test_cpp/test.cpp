@@ -240,3 +240,13 @@ void Test::set_o(O o)
 {
   _o = o;
 }
+
+int test_ns::A::foo()
+{
+  return 1;
+}
+
+int test_ns::nested_ns::A::foo()
+{
+  return 2;
+}

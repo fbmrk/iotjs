@@ -9,6 +9,7 @@ This tool generates a JS module from a C/C++ API, and you can use it in IoT.js l
     - [Variables](#variables)
     - [Enums](#enums)
     - [Macros](#macros)
+    - [Namespaces](#namespaces)
 3. [Supported types](#supported-types)
     - [Examples](#examples)
 4. [Usage](#usage)
@@ -141,6 +142,34 @@ console.log(lib.ONE); // print 1
 console.log(lib.TWO); // print 2
 console.log(lib.THREE); // print 3
 ```
+
+#### Namespaces:
+
+In JavaScript a namespace represented as an object, which is set to another object as property. Concretely to the object, which represent the scope where the namespace is.
+
+C++ header:
+```c
+namespace my_ns {
+  void foo(void);
+
+  namespace nested {
+    void foo(void);
+  }
+}
+```
+
+JS file:
+```javascript
+var cpp_lib = require('module_name');
+
+cpp_lib.my_ns.foo(); // my_ns::foo
+
+with (lib.my_ns.nested) {
+  foo(); // my_ns::nested::foo
+}
+```
+
+**NOTE**: If there is a `using` command for a namespace in the native header, you also have to call functions etc. through the namespace object. You can use `with` in JavaScript to reduce the code.
 
 ## Supported types:
 

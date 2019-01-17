@@ -438,7 +438,6 @@ INIT_FUNC = '''
 // init function for the module
 jerry_value_t Init_{NAME}()
 {{
-  jerry_value_t object = jerry_create_object();
 {BODY}
   return object;
 }}
@@ -446,9 +445,9 @@ jerry_value_t Init_{NAME}()
 
 INIT_REGIST_FUNC = '''
   // set an external function as a property to the module object
-  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{NAME}");
+  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{FUNC}");
   jerry_value_t {NAME}_func = jerry_create_external_function ({NAME}_handler);
-  jerry_value_t {NAME}_ret = jerry_set_property (object, {NAME}_name, {NAME}_func);
+  jerry_value_t {NAME}_ret = jerry_set_property ({OBJECT}, {NAME}_name, {NAME}_func);
   jerry_release_value ({NAME}_name);
   jerry_release_value ({NAME}_func);
   jerry_release_value ({NAME}_ret);
@@ -456,9 +455,9 @@ INIT_REGIST_FUNC = '''
 
 INIT_REGIST_RECORD = '''
   // set a constructor as a property to the module object
-  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{NAME}");
+  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t*)"{RECORD}");
   jerry_value_t {NAME}_func = jerry_create_external_function ({NAME}_js_constructor);
-  jerry_value_t {NAME}_ret = jerry_set_property (object, {NAME}_name, {NAME}_func);
+  jerry_value_t {NAME}_ret = jerry_set_property ({OBJECT}, {NAME}_name, {NAME}_func);
   jerry_release_value ({NAME}_name);
   jerry_release_value ({NAME}_func);
   jerry_release_value ({NAME}_ret);
@@ -466,15 +465,15 @@ INIT_REGIST_RECORD = '''
 
 INIT_REGIST_ENUM = '''
   // set an enum constant as a property to the module object
-  jerry_property_descriptor_t {ENUM}_prop_desc;
-  jerry_init_property_descriptor_fields (&{ENUM}_prop_desc);
-  {ENUM}_prop_desc.is_value_defined = true;
-  {ENUM}_prop_desc.value = jerry_create_number ({ENUM});
-  jerry_value_t {ENUM}_name = jerry_create_string ((const jerry_char_t *)"{ENUM}");
-  jerry_value_t {ENUM}_ret = jerry_define_own_property (object, {ENUM}_name, &{ENUM}_prop_desc);
-  jerry_release_value ({ENUM}_ret);
-  jerry_release_value ({ENUM}_name);
-  jerry_free_property_descriptor_fields (&{ENUM}_prop_desc);
+  jerry_property_descriptor_t {NAME}_prop_desc;
+  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
+  {NAME}_prop_desc.is_value_defined = true;
+  {NAME}_prop_desc.value = jerry_create_number ({REF});
+  jerry_value_t {NAME}_name = jerry_create_string ((const jerry_char_t *)"{ENUM}");
+  jerry_value_t {NAME}_ret = jerry_define_own_property ({OBJECT}, {NAME}_name, &{NAME}_prop_desc);
+  jerry_release_value ({NAME}_ret);
+  jerry_release_value ({NAME}_name);
+  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
 '''
 
 INIT_REGIST_VALUE = '''
@@ -485,8 +484,8 @@ INIT_REGIST_VALUE = '''
   {NAME}_prop_desc.is_set_defined = true;
   {NAME}_prop_desc.getter = jerry_create_external_function ({NAME}_getter);
   {NAME}_prop_desc.setter = jerry_create_external_function ({NAME}_setter);
-  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{VALUE}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
   jerry_release_value ({NAME}_prop_name);
   jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
@@ -498,8 +497,8 @@ INIT_REGIST_CONST = '''
   jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
   {NAME}_prop_desc.is_value_defined = true;
   {NAME}_prop_desc.value = {NAME}_js;
-  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{VALUE}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
   jerry_release_value ({NAME}_prop_name);
   jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
@@ -507,17 +506,34 @@ INIT_REGIST_CONST = '''
 
 INIT_REGIST_NUM_ARR = '''
   // set a global numeric array as a property to the module object
-  jerry_value_t {NAME}_buffer = jerry_create_arraybuffer_external (sizeof({TYPE}) * {SIZE}, (uint8_t*){NAME}, NULL);
+  jerry_value_t {NAME}_buffer = jerry_create_arraybuffer_external (sizeof({TYPE}) * {SIZE}, (uint8_t*){REF}, NULL);
   jerry_value_t {NAME}_typedarray = jerry_create_typedarray_for_arraybuffer_sz (JERRY_TYPEDARRAY_{ARRAY_TYPE}, {NAME}_buffer, 0, {SIZE});
   jerry_property_descriptor_t {NAME}_prop_desc;
   jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
   {NAME}_prop_desc.is_value_defined = true;
   {NAME}_prop_desc.value = {NAME}_typedarray;
-  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
-  jerry_value_t {NAME}_return_value = jerry_define_own_property (object, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{ARR}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
   jerry_release_value ({NAME}_prop_name);
   jerry_release_value ({NAME}_buffer);
+  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
+'''
+
+INIT_CREATE_OBJECT = '''
+  jerry_value_t {NAME}object = jerry_create_object();
+'''
+
+INIT_REGIST_OBJECT = '''
+  // set a namespace as a property to another namespace object
+  jerry_property_descriptor_t {NAME}_prop_desc;
+  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
+  {NAME}_prop_desc.is_value_defined = true;
+  {NAME}_prop_desc.value = {NAME}object;
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{REF}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_release_value ({NAME}_return_value);
+  jerry_release_value ({NAME}_prop_name);
   jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
 '''
 
