@@ -171,6 +171,7 @@ class CSourceGenerator(object):
         return c.JS_CREATE_STRING.format(NAME=name, FROM=cval)
 
     def num_pointer_to_js(self, name, cval, _type):
+        _type = _type.replace('const ', '')
         return c.JS_CREATE_TYPEDARRAY.format(NAME=name, FROM=cval, TYPE=_type,
                                              ARRAY_TYPE=c.TYPEDARRAYS[_type])
 

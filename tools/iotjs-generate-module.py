@@ -103,7 +103,7 @@ def search_for_lib(directory):
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.startswith('lib') and file.endswith('.a'):
-                return root, file
+                return (root, file)
 
 
 def generate_module(args):
@@ -154,23 +154,27 @@ def generate_module(args):
     with open(fs.join(src_dir, dirname + '_js_binding.' + extension), 'w') as c:
         c.write(c_file)
 
-    if args.no_lib:
-        json_file = MODULES_JSON.format(NAME=dirname, CMAKE='')
-    else:
-        lib_root, lib_name = search_for_lib(directory)
-        cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
+    library = search_for_lib(directory)
 
-        with open(fs.join(output_dir, 'module.cmake'), 'w') as cmake:
-            cmake.write(cmake_file)
+    if not library:
+        print ('\033[93mWARN: Cannot find library file. ' +
+               'Only the binding layer source has generated.\033[00m')
+        return
 
-        fs.copyfile(fs.join(lib_root, lib_name), fs.join(output_dir, lib_name))
+    lib_root, lib_name = library
+    cmake_file = MODULE_CMAKE.format(NAME=dirname, LIBRARY=lib_name[3:-2])
 
-        json_file = MODULES_JSON.format(NAME=dirname, CMAKE='module.cmake')
+    with open(fs.join(output_dir, 'module.cmake'), 'w') as cmake:
+        cmake.write(cmake_file)
 
-        if args.x == 'c++':
-            cmake_lists = CMAKE_LISTS.format(NAME=dirname)
-            with open(fs.join(src_dir, 'CMakeLists.txt'), 'w') as cmake:
-                cmake.write(cmake_lists)
+    fs.copyfile(fs.join(lib_root, lib_name), fs.join(output_dir, lib_name))
+
+    json_file = MODULES_JSON.format(NAME=dirname, CMAKE='module.cmake')
+
+    if args.x == 'c++':
+        cmake_lists = CMAKE_LISTS.format(NAME=dirname)
+        with open(fs.join(src_dir, 'CMakeLists.txt'), 'w') as cmake:
+            cmake.write(cmake_lists)
 
     with open(fs.join(output_dir, 'modules.json'), 'w') as json:
         json.write(json_file)
@@ -191,9 +195,6 @@ if __name__ == '__main__':
     parser.add_argument('--off', choices=['functions', 'variables', 'enums',
                                           'macros', 'records'],
         action='append', default=[], help='Turn off source generating.')
-
-    parser.add_argument('--no-lib', action='store_true', default=False,
-        help='Disable static library copying.')
 
     parser.add_argument('--define', action='append', default=[],
         help='Add macro definition.')

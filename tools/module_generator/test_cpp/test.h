@@ -35,7 +35,7 @@
 
 extern char c;
 extern int i;
-typedef enum  {A, B = 10} e;
+typedef enum { A, B = 10 } e;
 extern float f;
 extern double d;
 extern bool b;
@@ -57,29 +57,31 @@ typedef union {
 extern S s;
 extern U u;
 
-typedef int (func)(void);
+typedef int(func)(void);
 typedef int (*func_ptr)(void);
 
-void f_void (void);
-int f_int (int);
-char f_char (char);
-e f_enum (e);
-float f_float (float);
-double f_double (double);
-bool f_bool (bool);
-S f_struct (S);
-U f_union (U);
-char* f_char_ptr (char*);
-char* f_char_arr (char[5]);
-int* f_int_ptr (int*);
-int* f_int_arr (int[5]);
-int f_func (func);
-int f_func_ptr (func_ptr);
+void f_void(void);
+int f_int(int);
+char f_char(char);
+e f_enum(e);
+float f_float(float);
+double f_double(double);
+bool f_bool(bool);
+S f_struct(S);
+U f_union(U);
+char* f_char_ptr(char*);
+char* f_char_arr(char[5]);
+int* f_int_ptr(int*);
+int* f_int_arr(int[5]);
+int f_func(func);
+int f_func_ptr(func_ptr);
 
 class O {
   int _i;
-public:
-  O(): _i(42) {}
+
+ public:
+  O() : _i(42) {
+  }
   int get_i() {
     return _i;
   }
@@ -101,7 +103,8 @@ class Test {
   S _s;
   U _u;
   O _o;
-public:
+
+ public:
   char c;
   int i;
   float f;
@@ -142,14 +145,14 @@ public:
 };
 
 namespace test_ns {
-  namespace nested_ns {
-    class A {
-    public:
-      int foo();
-    };
-  }
-  class A {
-  public:
-    int foo();
-  };
+namespace nested_ns {
+class A {
+ public:
+  int foo();
+};
+}
+class A {
+ public:
+  int foo();
+};
 }

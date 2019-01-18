@@ -393,6 +393,12 @@ class ClangTUVisitor:
         self.clang_args = ['-x', lang]
         self.translation_unit = index.parse(header, args + self.clang_args,
                                             options=1)
+
+        for diag in self.translation_unit.diagnostics:
+            msg = '\033[91mERROR : {} at {} line {}, column {}\033[00m'
+            print (msg.format(diag.spelling, diag.location.file,
+                              diag.location.line, diag.location.column))
+
         self.api_headers = api_headers
         self.enum_constant_decls = []
         self.function_decls = []
