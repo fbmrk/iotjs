@@ -346,40 +346,47 @@ class ClangRecordDecl(ClangASTNode):
 
 
 class ClangNamespace:
-    def __init__(self, cursor):
-        self.name = cursor.spelling
+    def __init__(self, name, cursor_list):
+        self.name = name
         self.enum_constant_decls = []
         self.function_decls = []
         self.var_decls = []
         self.record_decls = []
         self.namespaces = []
 
-        children = cursor.get_children()
         cpp_funcs = {}
-        for cursor in children:
-            if cursor.kind == CursorKind.ENUM_DECL:
-                self.enum_constant_decls.append(ClangEnumDecl(cursor))
+        namespaces = {}
+        for cursor in cursor_list:
+            children = cursor.get_children()
+            for child in children:
+                if child.kind == CursorKind.ENUM_DECL:
+                    self.enum_constant_decls.append(ClangEnumDecl(child))
 
-            elif cursor.kind == CursorKind.FUNCTION_DECL:
-                if cursor.spelling in cpp_funcs:
-                    cpp_funcs[cursor.spelling].append(cursor)
-                else:
-                    cpp_funcs[cursor.spelling] = [cursor]
+                elif child.kind == CursorKind.FUNCTION_DECL:
+                    if child.spelling in cpp_funcs:
+                        cpp_funcs[child.spelling].append(child)
+                    else:
+                        cpp_funcs[child.spelling] = [child]
 
-            elif cursor.kind == CursorKind.VAR_DECL:
-                self.var_decls.append(ClangASTNode(cursor))
+                elif child.kind == CursorKind.VAR_DECL:
+                    self.var_decls.append(ClangASTNode(child))
 
-            elif (cursor.kind == CursorKind.CLASS_DECL or
-                  cursor.kind == CursorKind.STRUCT_DECL or
-                  cursor.kind == CursorKind.UNION_DECL):
-                self.record_decls.append(ClangRecordDecl(cursor))
+                elif (child.kind == CursorKind.CLASS_DECL or
+                      child.kind == CursorKind.STRUCT_DECL or
+                      child.kind == CursorKind.UNION_DECL):
+                    self.record_decls.append(ClangRecordDecl(child))
 
-            elif cursor.kind == CursorKind.NAMESPACE:
-                self.namespaces.append(ClangNamespace(cursor))
+                elif child.kind == CursorKind.NAMESPACE:
+                    if child.spelling in namespaces:
+                        namespaces[child.spelling].append(child)
+                    else:
+                        namespaces[child.spelling] = [child]
 
         for name, cursor_list in cpp_funcs.items():
             self.function_decls.append(ClangRecordMethod(name, cursor_list))
 
+        for name, cursor_list in namespaces.items():
+            self.namespaces.append(ClangNamespace(cursor))
 
 # This class responsible for initializing and visiting
 # the AST provided by libclang.
@@ -411,6 +418,7 @@ class ClangTUVisitor:
         children = self.translation_unit.cursor.get_children()
 
         cpp_funcs = {}
+        namespaces = {}
         for cursor in children:
             if (cursor.location.file != None and
                 cursor.location.file.name in self.api_headers):
@@ -439,10 +447,16 @@ class ClangTUVisitor:
                     self.record_decls.append(ClangRecordDecl(cursor))
 
                 elif cursor.kind == CursorKind.NAMESPACE:
-                    self.namespaces.append(ClangNamespace(cursor))
+                    if cursor.spelling in namespaces:
+                        namespaces[cursor.spelling].append(cursor)
+                    else:
+                        namespaces[cursor.spelling] = [cursor]
 
         for name, cursor_list in cpp_funcs.items():
             self.function_decls.append(ClangRecordMethod(name, cursor_list))
+
+        for name, cursor_list in namespaces.items():
+            self.namespaces.append(ClangNamespace(name, cursor_list))
 
         # Resolve other macros in macro definition
         for first in self.macro_defs:
