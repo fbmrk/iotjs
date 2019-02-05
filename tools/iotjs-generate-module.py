@@ -39,12 +39,12 @@ def generate_c_source(header, api_headers, dirname, args):
     if args.includes:
         visit_args += ['-I' + inc for inc in args.includes.read().splitlines()]
 
-    visitor = ClangTUVisitor(args.x, header, api_headers, visit_args)
+    visitor = ClangTUVisitor(args.lang, header, api_headers, visit_args)
     visitor.visit()
 
-    if args.x == 'c':
+    if args.lang == 'c':
         generator = CSourceGenerator()
-    elif args.x == 'c++':
+    elif args.lang == 'c++':
         generator = CppSourceGenerator()
 
     generated_source = [INCLUDE.format(HEADER=dirname + '_js_binding.h')]
@@ -150,7 +150,7 @@ def generate_module(args):
 
     c_file = generate_c_source(header_file, api_headers, dirname, args)
 
-    extension = 'cpp' if args.x == 'c++' else 'c'
+    extension = 'cpp' if args.lang == 'c++' else 'c'
     with open(fs.join(src_dir, dirname + '_js_binding.' + extension), 'w') as c:
         c.write(c_file)
 
@@ -171,7 +171,7 @@ def generate_module(args):
 
     json_file = MODULES_JSON.format(NAME=dirname, CMAKE='module.cmake')
 
-    if args.x == 'c++':
+    if args.lang == 'c++':
         cmake_lists = CMAKE_LISTS.format(NAME=dirname)
         with open(fs.join(src_dir, 'CMakeLists.txt'), 'w') as cmake:
             cmake.write(cmake_lists)
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('directory', help='Root directory of the C/C++ API.')
 
-    parser.add_argument('-x', choices=['c', 'c++'], default='c',
+    parser.add_argument('lang', choices=['c', 'c++'],
         help='Specify the language of the API. (default: %(default)s)')
 
     parser.add_argument('--out-dir', help='Output directory for the module. ' +
@@ -212,14 +212,12 @@ if __name__ == '__main__':
     parser.add_argument('--check-all', action='store_true', default=False,
         help='Check the C API headers.')
 
-
-
     args = parser.parse_args()
 
-    if args.x == 'c':
+    if args.lang == 'c':
         from module_generator.c_source_templates import INCLUDE, MODULES_JSON, \
             MODULE_CMAKE
-    elif args.x == 'c++':
+    elif args.lang == 'c++':
         from module_generator.cpp_source_templates import INCLUDE, \
             MODULES_JSON, MODULE_CMAKE, CMAKE_LISTS
 
