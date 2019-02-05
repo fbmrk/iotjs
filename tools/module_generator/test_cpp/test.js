@@ -131,12 +131,46 @@ s.c = 's';
 lib.s = s;
 assert.equal(lib.s.i, 42);
 assert.equal(lib.s.c, 's');
+lib.s.i = 100;
+lib.s.c = 'c';
+assert.equal(lib.s.i, 100);
+assert.equal(lib.s.c, 'c');
+
+var c_s = new lib.const_S();
+assert.equal(c_s.i, 0);
+c_s.i = 42;
+assert.equal(c_s.i, 0);
+c_s = new lib.const_S({
+  i : 42
+});
+assert.equal(c_s.i, 42);
+c_s.i = 0;
+assert.equal(c_s.i, 42);
+assert.equal(lib.const_s.i, 0);
+lib.const_s.i = 42;
+assert.equal(lib.const_s.i, 0);
 
 var u = new lib.U();
 u.i = 65;
 lib.u = u;
 assert.equal(lib.u.i, 65);
 assert.equal(lib.u.c, 'A');
+lib.u.i = 66;
+assert.equal(lib.u.c, 'B');
+
+var c_u = new lib.const_U();
+assert.equal(c_u.i, 0);
+c_u.i = 42;
+assert.equal(c_u.i, 0);
+c_u = new lib.const_U({
+  i : 42
+});
+assert.equal(c_u.i, 42);
+c_u.i = 0;
+assert.equal(c_u.i, 42);
+assert.equal(lib.const_u.i, 0);
+lib.const_u.i = 42;
+assert.equal(lib.const_u.i, 0);
 
 // FUNCTIONS
 assert.equal(lib.f_void(), undefined);

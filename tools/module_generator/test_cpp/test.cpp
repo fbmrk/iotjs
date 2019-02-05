@@ -26,7 +26,9 @@ int* i_ptr;
 int i_arr[5];
 
 S s;
+const_S const_s = {0};
 U u;
+const_U const_u = {0};
 
 void f_void (void)
 {

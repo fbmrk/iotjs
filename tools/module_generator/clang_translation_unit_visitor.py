@@ -48,7 +48,7 @@ class ClangASTNodeType:
     def __init__(self, clang_type):
         # We are only interested in the underlying canonical types.
         self._canonical_type = clang_type.get_canonical()
-        self._type_name = clang_type.spelling
+        self._type_name = clang_type.spelling.replace('const ', '')
 
     @property
     def name(self):
@@ -85,6 +85,14 @@ class ClangASTNodeType:
     def is_record(self):
         return self._canonical_type.kind == TypeKind.RECORD
 
+    def is_struct(self):
+        return (self._canonical_type.get_declaration().kind ==
+                CursorKind.STRUCT_DECL)
+
+    def is_union(self):
+        return (self._canonical_type.get_declaration().kind ==
+                CursorKind.UNION_DECL)
+
     def is_function(self):
         return (self._canonical_type.kind == TypeKind.FUNCTIONPROTO or
                 self._canonical_type.kind == TypeKind.FUNCTIONNOPROTO)
@@ -112,6 +120,17 @@ class ClangASTNodeType:
     def get_as_record_decl(self):
         assert (self.is_record())
         return ClangRecordDecl(self._canonical_type.get_declaration())
+
+    def has_const_member(self):
+        ret = False
+        decl = self._canonical_type.get_declaration()
+        for child in decl.get_children():
+            if child.kind == CursorKind.FIELD_DECL:
+                if child.type.get_canonical().kind == TypeKind.RECORD:
+                    ret = ClangASTNodeType(child.type).has_const_member()
+                if child.type.is_const_qualified():
+                    ret = True
+        return ret
 
 
 # This class is a wrapper for the Cursor type.
@@ -177,8 +196,6 @@ class ClangFunctionDecl(ClangASTNode):
 
         for arg in function_arguments:
             arg = ClangASTNode(arg)
-            if arg.type.is_const():
-                arg.type.name = arg.type.name.replace('const ', '')
             self._parm_decls.append(arg)
 
     @property
@@ -256,8 +273,6 @@ class ClangRecordConstructor:
                 params = []
                 for param in param_list:
                     param = ClangASTNode(param)
-                    if param.type.is_const():
-                        param.type.name = param.type.name.replace('const ', '')
                     params.append(param)
                 if len(param_list) in self._parm_decls:
                     self._parm_decls[len(param_list)].append(params)
@@ -293,18 +308,15 @@ class ClangRecordDecl(ClangASTNode):
         ClangASTNode.__init__(self, cursor)
 
         self._field_decls = []
-        self._has_default_constructor = False
-        self._has_copy_constructor = False
+        self._has_constructor = True
+        self._has_default_constructor = True
+        self._has_copy_constructor = True
 
         constructors = []
         methods = {}
         for child in cursor.get_children():
             if child.access_specifier == AccessSpecifier.PUBLIC:
                 if child.kind == CursorKind.CONSTRUCTOR:
-                    if child.is_default_constructor():
-                        self._has_default_constructor = True
-                    if child.is_copy_constructor():
-                        self._has_copy_constructor = True
                     constructors.append(child)
                 if child.kind == CursorKind.FIELD_DECL:
                     self._field_decls.append(ClangASTNode(child))
@@ -314,8 +326,10 @@ class ClangRecordDecl(ClangASTNode):
                     else:
                         methods[child.spelling] = [child]
 
-        if not constructors:
-            self._has_default_constructor = True
+        if not constructors and self.type.has_const_member():
+            self._has_constructor = False
+            self._has_default_constructor = False
+            self._has_copy_constructor = False
         self._constructor = ClangRecordConstructor(constructors)
         self._methods = [ClangRecordMethod(k, v) for k, v in methods.items()]
 
@@ -329,6 +343,9 @@ class ClangRecordDecl(ClangASTNode):
     @property
     def constructor(self):
         return self._constructor
+
+    def has_constructor(self):
+        return self._has_constructor
 
     def has_default_constructor(self):
         return self._has_default_constructor
@@ -386,7 +403,7 @@ class ClangNamespace:
             self.function_decls.append(ClangRecordMethod(name, cursor_list))
 
         for name, cursor_list in namespaces.items():
-            self.namespaces.append(ClangNamespace(cursor))
+            self.namespaces.append(ClangNamespace(name, cursor_list))
 
 # This class responsible for initializing and visiting
 # the AST provided by libclang.
@@ -511,7 +528,7 @@ class ClangTUChecker:
 
     def __init__(self, header, api_headers, check_all):
         # TODO: Avoid hard-coding paths and args in general.
-        Config.set_library_file('libclang-5.0.so.1')
+        Config.set_library_file('libclang-6.0.so.1')
         index = Index.create()
 
         # TODO: C++ needs a different configuration (-x C++).

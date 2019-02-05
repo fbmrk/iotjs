@@ -63,7 +63,7 @@ JS_TO_TYPEDARRAY = '''
   }}
 '''
 
-JS_FREE_BUFFER = '''
+JS_FREE_WRITE_BUFFER = '''
   // write the values back into an arraybuffer from a pointer
   if (jerry_value_is_typedarray ({JVAL}))
   {{
@@ -100,6 +100,7 @@ JS_SET_TYPEDARRAY = '''
 JS_RETURN_OBJECT = '''
   // create object from record
   jerry_value_t {NAME} = {RECORD}_js_creator({FROM});
+  jerry_set_object_native_pointer({NAME}, {FROM}, &{RECORD}_type_info);
 '''
 
 # Alloc record
@@ -126,6 +127,10 @@ void {RECORD}_js_destructor(void* ptr) {{
 static const jerry_object_native_info_t {RECORD}_type_info = {{
     .free_cb = {RECORD}_js_destructor
 }};
+
+static const jerry_object_native_info_t {RECORD}_type_info_static = {{
+  .free_cb = nullptr
+}};
 '''
 
 # Record constructor
@@ -145,7 +150,9 @@ jerry_value_t {RECORD}_js_constructor (const jerry_value_t function_obj,
      }}
   }}
 
-  return {RECORD}_js_creator(native_ptr);
+  jerry_value_t ret_val = {RECORD}_js_creator(native_ptr);
+  jerry_set_object_native_pointer(ret_val, native_ptr, &{RECORD}_type_info);
+  return ret_val;
 }}
 '''
 
@@ -209,7 +216,8 @@ jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
   const jerry_object_native_info_t* type_ptr;
   bool has_ptr = jerry_get_object_native_pointer(this_val, &void_ptr, &type_ptr);
 
-  if (!has_ptr || type_ptr != &{RECORD}_type_info) {{
+  if (!has_ptr ||
+      (type_ptr != &{RECORD}_type_info && type_ptr != &{RECORD}_type_info_static)) {{
     char const *msg = "Failed to get native {RECORD} pointer";
     return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
   }}
@@ -322,6 +330,7 @@ extern "C" jerry_value_t Init_{NAME}()
 
 INCLUDE = '''
 #include <cstdlib>
+#include <cstring>
 #include "jerryscript.h"
 #include "{HEADER}"
 '''

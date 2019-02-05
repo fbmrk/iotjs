@@ -50,13 +50,19 @@ typedef struct {
   char c;
 } S;
 
+typedef struct { const int i; } const_S;
+
 typedef union {
   int i;
   char c;
 } U;
 
+typedef union { const int i; } const_U;
+
 S s;
+const_S const_s;
 U u;
+const_U const_u;
 
 typedef int(func)(void);
 typedef int (*func_ptr)(void);

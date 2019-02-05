@@ -28,6 +28,8 @@ class CSourceGenerator(object):
         self.namespace = []
         self.macros = []
         self.init_func_body = []
+        self.global_records = []
+        self.global_const_records = []
 
     @property
     def ns_name(self):
@@ -84,6 +86,9 @@ class CSourceGenerator(object):
     def js_free_buffer(self, name, jval):
         return c.JS_FREE_BUFFER.format(NAME=name, JVAL=jval)
 
+    def js_free_write_buffer(self, name, jval):
+        return c.JS_FREE_WRITE_BUFFER.format(NAME=name, JVAL=jval)
+
     def js_set_num_pointer(self, _type, name, jval):
         return c.JS_SET_TYPEDARRAY.format(TYPE=_type, NAME=name, JVAL=jval)
 
@@ -94,6 +99,10 @@ class CSourceGenerator(object):
     def js_set_record(self, _type, name, jval, record):
         return c.JS_SET_RECORD.format(TYPE=_type, NAME=name, JVAL=jval,
                                       RECORD=record)
+
+    def js_set_const_record(self, _type, name, jval, record):
+        return c.JS_SET_CONST_RECORD.format(TYPE=_type, NAME=name, JVAL=jval,
+                                            RECORD=record)
 
     def js_to_function(self, func, name, jval, _type, params):
         return c.JS_TO_FUNCTION.format(FUNC=func, NAME=name, JVAL=jval,
@@ -149,6 +158,8 @@ class CSourceGenerator(object):
                     return self.js_set_num_pointer(pointee.name, name, jval)
         elif c_type.is_record():
             record = self.ns_name + c_type.get_as_record_decl().name
+            if c_type.has_const_member():
+                return self.js_set_const_record(c_type.name, name, jval, record)
             return self.js_set_record(c_type.name, name, jval, record)
 
         return self.js_to_unsupported(c_type.name, name)
@@ -171,13 +182,16 @@ class CSourceGenerator(object):
         return c.JS_CREATE_STRING.format(NAME=name, FROM=cval)
 
     def num_pointer_to_js(self, name, cval, _type):
-        _type = _type.replace('const ', '')
         return c.JS_CREATE_TYPEDARRAY.format(NAME=name, FROM=cval, TYPE=_type,
                                              ARRAY_TYPE=c.TYPEDARRAYS[_type])
 
     def record_to_js(self, name, cval, _type, record):
         return c.JS_CREATE_OBJECT.format(NAME=name, FROM=cval, TYPE=_type,
                                          RECORD=record)
+
+    def const_record_to_js(self, name, cval, _type, record):
+        return c.JS_CREATE_CONST_OBJECT.format(NAME=name, FROM=cval, TYPE=_type,
+                                               RECORD=record)
 
     def unsupported_to_js(self, name, cval):
         return c.JS_CREATE_UNSUPPORTED.format(NAME=name, FROM=cval)
@@ -199,6 +213,8 @@ class CSourceGenerator(object):
                 return self.num_pointer_to_js(name, cval, pointee.name)
         elif c_type.is_record():
             record = self.ns_name + c_type.get_as_record_decl().name
+            if c_type.has_const_member():
+                return self.const_record_to_js(name, cval, c_type.name, record)
             return self.record_to_js(name, cval, c_type.name, record)
 
         return self.unsupported_to_js(name, cval)
@@ -210,15 +226,43 @@ class CSourceGenerator(object):
         return c.JS_RECORD_MEMBER.format(TYPE=_type, RECORD=record, NAME=name,
                                          BODY=body)
 
+    def js_record_getter(self, name, record):
+        return c.JS_RECORD_GETTER.format(NAME=name, RECORD=record)
+
     def js_record_creator(self, _type, record, regist):
         return c.JS_RECORD_CREATOR.format(TYPE=_type, RECORD=record,
                                           REGIST=regist)
 
-    def js_record_constructor(self, _type, record):
-        return c.JS_RECORD_CONSTRUCTOR.format(TYPE=_type, RECORD=record)
+    def js_record_constructor_c(self, _type, record, body):
+        return c.JS_RECORD_CONSTRUCTOR.format(TYPE=_type, RECORD=record,
+                                              BODY=body)
+
+    def js_record_return(self, record):
+        return c.JS_RECORD_RETURN.format(RECORD=record)
+
+    def js_get_prop_struct(self, name, _type, get_val, array=''):
+        return c.JS_GET_PROP_STRUCT.format(NAME=name, TYPE=_type,
+                                           GET_VAL=get_val, ARRAY=array)
+
+    def js_get_prop_union(self, name, _type, get_val, ret, array=''):
+        return c.JS_GET_PROP_UNION.format(NAME=name, TYPE=_type,
+                                          GET_VAL=get_val, RET=ret, ARRAY=array)
+
+    def js_init_members(self, _type, members):
+        return c.JS_INIT_MEMBERS.format(TYPE=_type, MEMBERS=members)
+
+    def js_init_members_const(self, _type, members):
+        return c.JS_INIT_MEMBERS_CONST.format(TYPE=_type, MEMBERS=members)
 
     def js_regist_member(self, record, name):
         return c.JS_REGIST_MEMBER.format(RECORD=record, NAME=name)
+
+    def js_regist_record(self, name, record, ref, object):
+        return c.JS_REGIST_RECORD.format(NAME=name, RECORD=record, REF=ref,
+                                         OBJECT=object)
+
+    def js_regist_const_member(self, name):
+        return c.JS_REGIST_CONST_MEMBER.format(NAME=name)
 
     def js_regist_num_arr_member(self, name, _type, size):
         return c.JS_REGIST_ARR_MEMBER.format(NAME=name, TYPE=_type, SIZE=size,
@@ -233,12 +277,86 @@ class CSourceGenerator(object):
         set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
 
         record_name = self.ns_name + record.name
-        getter = self.js_record_member(record.type.name, record_name,
-                                       member.name + '_getter', get_result)
+        if member.type.is_record():
+            getter = self.js_record_getter(member.name, record_name + '_')
+        else:
+            getter = self.js_record_member(record.type.name, record_name,
+                                           member.name + '_getter', get_result)
         setter = self.js_record_member(record.type.name, record_name,
                                        member.name + '_setter', set_result)
 
         return getter + setter
+
+    def create_record_constructor(self, record):
+        name = self.ns_name + record.name
+        type_name = record.type.name
+        is_struct = record.type.is_struct()
+        is_union = record.type.is_union()
+        has_const_member = record.type.has_const_member()
+        constructor = []
+        members = []
+        free = []
+
+        for member in record.field_decls:
+            m_name = member.name
+            m_type = member.type
+            jval = '{}_value'.format(m_name)
+            array = ''
+            get_val = self.js_set_c(m_type, m_name, jval)
+
+            if m_type.is_array():
+                size = m_type.get_array_size()
+                init_array = ['{' + m_name + '[0]']
+                for i in range(size-2):
+                    init_array.append('{}[{}]'.format(m_name, i+1))
+                init_array.append('{}[{}]}}'.format(m_name, size-1))
+                init_array = (', ').join(init_array)
+                members.append(init_array)
+                m_type = m_type.get_array_type()
+                array = '[{}]'.format(size)
+                if is_union:
+                    if has_const_member:
+                        get_val += self.js_init_members_const(type_name,
+                                                              init_array)
+                    else:
+                        get_val += self.js_init_members(type_name, init_array)
+            else:
+                members.append(m_name)
+                if is_union:
+                    if has_const_member:
+                        get_val += self.js_init_members_const(type_name, m_name)
+                    else:
+                        get_val += self.js_init_members(type_name, m_name)
+                if m_type.is_pointer():
+                    if m_type.get_pointee_type().is_char():
+                        free.append(self.js_free_string(m_name, jval))
+                        if is_union:
+                            get_val += self.js_free_string(m_name, jval)
+                    elif m_type.get_pointee_type().is_number():
+                        free.append(self.js_free_buffer(m_name, jval))
+                        if is_union:
+                            get_val += self.js_free_buffer(m_name, jval)
+
+            if is_struct:
+                constructor.append(self.js_get_prop_struct(m_name, m_type.name,
+                                                           get_val, array))
+            elif is_union:
+                ret = self.js_record_return(name)
+                constructor.append(self.js_get_prop_union(m_name, m_type.name,
+                                                          get_val, ret, array))
+        constructor = ('').join(constructor)
+        members = (', ').join(members)
+        free = ('').join(free)
+        if has_const_member:
+            members = self.js_init_members_const(type_name, members)
+        else:
+            members = self.js_init_members(type_name, members)
+        if is_struct:
+            body = constructor + members + free
+        elif is_union:
+            body = constructor
+
+        return self.js_record_constructor_c(type_name, name, body)
 
     def create_record(self, record):
         name = record.name
@@ -247,24 +365,32 @@ class CSourceGenerator(object):
         result = [self.js_record_destructor(type_name, name)]
         regist = []
 
-        self.num_arr_members = []
         for member in record.field_decls:
-            if member.type.get_array_type().is_number():
-                self.num_arr_members.append(member)
-            elif not member.type.is_const():
+            m_name = member.name
+            m_type = member.type
+            if m_type.is_const():
+                cval = 'native_ptr->' + m_name
+                jval = m_name + '_js'
+                regist.append(self.c_to_js(m_type, cval, jval))
+                regist.append(self.js_regist_const_member(m_name))
+            elif m_type.get_array_type().is_number():
+                arr_name = m_type.get_array_type().name
+                size = m_type.get_array_size()
+                regist.append(self.js_regist_num_arr_member(m_name, arr_name,
+                                                            size))
+            else:
                 get_set = self.create_member_getter_setter(member, record)
                 result.append(get_set)
-                regist.append(self.js_regist_member(name, member.name))
+                regist.append(self.js_regist_member(name, m_name))
+                if member.type.is_record():
+                    r_name = member.type.get_as_record_decl().name
+                    ref = 'native_ptr->{}'.format(m_name)
+                    regist.append(self.js_regist_record(m_name, r_name, ref,
+                                                        'js_obj'))
 
-        for member in self.num_arr_members:
-            arr_name = member.type.get_array_type().name
-            size = member.type.get_array_size()
-            regist.append(self.js_regist_num_arr_member(member.name, arr_name,
-                                                        size))
-
-        regist = ('\n').join(regist)
+        regist = ('').join(regist)
         result.append(self.js_record_creator(type_name, name, regist))
-        result.append(self.js_record_constructor(type_name, name))
+        result.append(self.create_record_constructor(record))
 
         return '\n'.join(result)
 
@@ -343,7 +469,7 @@ class CSourceGenerator(object):
                 if param.type.get_pointee_type().is_char():
                     buff.append(self.js_free_string(name, jval))
                 if param.type.get_pointee_type().is_number():
-                    buff.append(self.js_free_buffer(name, jval))
+                    buff.append(self.js_free_write_buffer(name, jval))
 
         return result, buff, callback
 
@@ -399,18 +525,27 @@ class CSourceGenerator(object):
         elif var.type.get_array_type().is_number():
             self.number_arrays.append(var)
             return ''
-        self.variable_names.append(var.name)
 
         ns_name = self.ns_name + var.name
         scope_name = self.scope_name + var.name
 
-        get_result = self.c_to_js(var.type, scope_name, 'ret_val')
+        if var.type.is_record():
+            record = self.ns_name + var.type.get_as_record_decl().name
+            self.global_records.append((var.name, record))
+            getter = self.js_record_getter(ns_name, '')
+            if var.type.has_const_member():
+                self.global_const_records.append(var.name)
+                return getter
+        else:
+            get_result = self.c_to_js(var.type, scope_name, 'ret_val')
+            getter = self.js_ext_func(ns_name + '_getter', get_result)
+
+        self.variable_names.append(var.name)
         set_result = self.js_check_type(var.type, 'args_p[0]',
                                         ns_name + '_setter')
         set_result += self.js_set_c(var.type, scope_name, 'args_p[0]')
         set_result += '  jerry_value_t ret_val = jerry_create_undefined();'
 
-        getter = self.js_ext_func(ns_name + '_getter', get_result)
         setter = self.js_ext_func(ns_name + '_setter', set_result)
 
         return getter + setter
@@ -431,6 +566,10 @@ class CSourceGenerator(object):
 
     def init_regist_value(self, name, object, value):
         return c.INIT_REGIST_VALUE.format(NAME=name, OBJECT=object, VALUE=value)
+
+    def init_regist_const_record(self, name, object, value):
+        return c.INIT_REGIST_CONST_RECORD.format(NAME=name, OBJECT=object,
+                                                 VALUE=value)
 
     def init_regist_const(self, name, object, value):
         return c.INIT_REGIST_CONST.format(NAME=name, OBJECT=object, VALUE=value)
@@ -474,6 +613,19 @@ class CSourceGenerator(object):
             name = self.ns_name + varname
             self.init_func_body.append(self.init_regist_value(name, object,
                                                               varname))
+
+        for glob_record in self.global_records:
+            name = self.ns_name + glob_record[0]
+            ref = self.scope_name + glob_record[0]
+            record = glob_record[1]
+            self.init_func_body.append(self.js_regist_record(name, record, ref,
+                                                             object))
+
+        for c_record in self.global_const_records:
+            name = self.ns_name + c_record
+            self.init_func_body.append(self.init_regist_const_record(name,
+                                                                     object,
+                                                                     c_record))
 
         for array in self.number_arrays:
             name = self.ns_name + array.name
@@ -520,6 +672,8 @@ class CSourceGenerator(object):
         del self.function_names[:]
         del self.record_names[:]
         del self.variable_names[:]
+        del self.global_records[:]
+        del self.global_const_records[:]
         del self.number_arrays[:]
         del self.constant_variables[:]
         del self.enums[:]
@@ -547,8 +701,8 @@ class CppSourceGenerator(CSourceGenerator):
     def js_to_num_pointer(self, _type, name, jval):
         return cpp.JS_TO_TYPEDARRAY.format(TYPE=_type, NAME=name, JVAL=jval)
 
-    def js_free_buffer(self, name, jval):
-        return cpp.JS_FREE_BUFFER.format(NAME=name, JVAL=jval)
+    def js_free_write_buffer(self, name, jval):
+        return cpp.JS_FREE_WRITE_BUFFER.format(NAME=name, JVAL=jval)
 
     def js_set_num_pointer(self, _type, name, jval):
         return cpp.JS_SET_TYPEDARRAY.format(TYPE=_type, NAME=name, JVAL=jval)
@@ -582,7 +736,7 @@ class CppSourceGenerator(CSourceGenerator):
     def js_record_destructor(self, _type, record):
         return cpp.JS_RECORD_DESTRUCTOR.format(TYPE=_type, RECORD=record)
 
-    def js_record_constructor(self, _type, record, case):
+    def js_record_constructor_cpp(self, _type, record, case):
         return cpp.JS_RECORD_CONSTRUCTOR.format(TYPE=_type, RECORD=record,
                                                 CASE=case)
 
@@ -639,44 +793,45 @@ class CppSourceGenerator(CSourceGenerator):
         ns_name = self.ns_name + name
         record_type = record.type.name
         self.record_names.append(name)
-        result = [self.js_record_destructor(record.type.name, ns_name)]
+        result = [self.js_record_destructor(record_type, ns_name)]
         regist = []
 
-        self.constant_members = []
-        self.num_arr_members = []
         for member in record.field_decls:
             if member.type.is_const():
-                self.constant_members.append(member)
+                cval = 'native_ptr->' + member.name
+                jval = name + '_' + member.name + '_js'
+                regist.append(self.c_to_js(member.type, cval, jval))
+                regist.append(self.js_regist_const_member(name, member.name))
             elif member.type.get_array_type().is_number():
-                self.num_arr_members.append(member)
+                arr_name = member.type.get_array_type().name
+                size = member.type.get_array_size()
+                regist.append(self.js_regist_num_arr_member(member.name,
+                                                            arr_name, size))
             else:
                 get_set = self.create_member_getter_setter(member, record)
                 result.append(get_set)
                 regist.append(self.js_regist_member(ns_name, member.name))
-
-        for member in self.constant_members:
-            member_name = name + '_' + member.name + '_js'
-            member_ref = 'native_ptr->' + member.name
-            regist.append(self.c_to_js(member.type, member_ref, member_name))
-            regist.append(self.js_regist_const_member(name, member.name))
-
-        for member in self.num_arr_members:
-            arr_name = member.type.get_array_type().name
-            size = member.type.get_array_size()
-            regist.append(self.js_regist_num_arr_member(member.name, arr_name,
-                                                        size))
+                if member.type.is_record():
+                    r_name = member.type.get_as_record_decl().name
+                    ref = 'native_ptr->{}'.format(member.name)
+                    regist.append(self.js_regist_record(member.name, r_name,
+                                                        ref, 'js_obj'))
 
         for method in record.methods:
             result.append(self.create_ext_function(method, name, record_type,
                                                    is_method=True))
             regist.append(self.js_regist_method(ns_name, method.name))
 
-        cases = self.create_ext_function(record.constructor, name,
-                                         is_constructor=True)
-
         regist = ('\n').join(regist)
         result.append(self.js_record_creator(record_type, ns_name, regist))
-        result.append(self.js_record_constructor(record_type, ns_name, cases))
+
+        if record.has_constructor():
+            cases = self.create_ext_function(record.constructor, name,
+                                             is_constructor=True)
+            result.append(self.js_record_constructor_cpp(record_type, ns_name,
+                                                         cases))
+        else:
+            result.append(self.create_record_constructor(record))
 
         return '\n'.join(result)
 
