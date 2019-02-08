@@ -185,6 +185,14 @@ The table below shows which JavaScript type represent the particular C/C++ type.
 | float / double | Number |
 | _Bool / bool | Boolean |
 
+### Record types:
+
+If you would like to create a record type variable you have to call a constructor through the library object.
+
+| C/C++ type | JS type |
+| - | - |
+| struct / union / class | Object |
+
 ### Pointer types:
 
 If there is a char or int pointer in a native function's parameter list and you call this function from JavaScript with a String or TypedArray the binding layer alloc memory for the native pointers. If after the native call the pointers won't be used you should modify the source code of the binding layer and free them.
@@ -194,14 +202,7 @@ If there is a char or int pointer in a native function's parameter list and you 
 | char * / char [] | String / Null |
 | int * / int [] | TypedArray / Null |
 | function pointer | Function / Null |
-
-### Record types:
-
-If you would like to create a record type variable you have to call a constructor through the library object.
-
-| C/C++ type | JS type |
-| - | - |
-| struct / union / class | Object |
+| record pointer (only as function parameter) | Object / Null |
 
 **NOTE**: Other types are not supported, which means that you need to implement how you would like to use these parts of the C/C++ API.
 
@@ -361,8 +362,6 @@ lib.bar();
 
 ##### `struct / union / class`
 
-If there is a global struct / union / class variable, like `s` below, and it has a member, like `i`, you can get its value directly, for example `console.log(lib.s.i)`, but you can not set its value directly, so you need to set the struct/union/class variable through an object.
-
 ```cpp
 typedef struct {
   int i;
@@ -386,6 +385,7 @@ C c;
 S f(S);
 U g(U);
 C h(C);
+void ptr(S*);
 ```
 ```javascript
 var s = new lib.S();
@@ -394,8 +394,8 @@ var c = new lib.C();
 
 s.i = 42;
 s.c = 's';
-lib.s = s; // OK
-// lib.s.i = 42; NOT WORK
+lib.s = s;
+lib.s.i = 0;
 
 // var o = {
 //   i: 42,
@@ -406,6 +406,7 @@ lib.s = s; // OK
 var other_s = lib.f(s);
 var other_u = lib.g(u);
 var other_c = lib.h(c);
+lib.ptr(s);
 
 console.log(lib.c.get_i());
 ```
@@ -416,30 +417,21 @@ You can generate a module using the following command:
 
 ```bash
 # assuming you are in iotjs folder
-$ tools/iotjs_module_generator.py <INPUT_FOLDER>
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG>
 ```
 
-The `<INPUT_FOLDER>` should contain the header files and the static library of the C/C++ API, and this is a required argument for the script. The script generates the source files to the `iotjs/tools/module_generator/output/<INPUT_FOLDER>_module/` folder. The module name will be `<INPUT_FOLDER>_module`. If you would like to modify how the module should work, you have to make some changes in the generated `.c` or `.cpp` file.
+The `<INPUT_FOLDER>` should contain the header files and the static library of the C/C++ API. `<LANG>` is the language of the API, which can be `c` or `c++`. These are required arguments for the script. The script generates the source files to the `iotjs/tools/module_generator/output/<INPUT_FOLDER>_module/` folder. The module name will be `<INPUT_FOLDER>_module`. If you would like to modify how the module should work, you have to make some changes in the generated `.c` or `.cpp` file.
 
 #### Optional arguments:
 
 The script has some optional arguments, which are the following:
-
-##### `-x`
-* `c` | `c++`
-
-Specify the language of the API. The default value is `c`.
-
-```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> -x c++
-```
 
 ##### `--out-dir`
 
 The output folder of the generated module. Default is `tools/module_generator/output`
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --out-dir <OUTPUT_FOLDER>
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --out-dir <OUTPUT_FOLDER>
 ```
 
 ##### `--off`
@@ -448,15 +440,7 @@ $ tools/iotjs_module_generator.py <INPUT_FOLDER> --out-dir <OUTPUT_FOLDER>
 Turn off the processing of the given part of the C API, which means that the script will not generate any code for this part, so you can not use this in the JS environment.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --off=enums --off=macros
-```
-
-##### `--no-lib`
-
-Does not search for the static library and does not generate `.cmake` file.
-
-```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --no-lib
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --off=enums --off=macros
 ```
 
 ##### `--define`
@@ -464,7 +448,7 @@ $ tools/iotjs_module_generator.py <INPUT_FOLDER> --no-lib
 Define a macro for the clang preprocessor.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --define FOO --define BAR=42
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --define FOO --define BAR=42
 ```
 
 ##### `--defines`
@@ -478,7 +462,7 @@ BAR=42
 ```
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --defines macro_defines.txt
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --defines macro_defines.txt
 ```
 
 ##### `--include`
@@ -486,7 +470,7 @@ $ tools/iotjs_module_generator.py <INPUT_FOLDER> --defines macro_defines.txt
 Add include path to search for other files.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --include path/to/the/include/folder/
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --include path/to/the/include/folder/
 ```
 
 ##### `--includes`
@@ -500,7 +484,7 @@ other/path/to/other/folder
 ```
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> --includes includes.txt
+$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --includes includes.txt
 ```
 
 ## Quick example:
@@ -531,7 +515,7 @@ void bar(); // print "Hello!"
 #### Build:
 ```bash
 # assuming you are in iotjs folder
-$ tools/iotjs_module_generator.py ../my_api/
+$ tools/iotjs_module_generator.py ../my_api/ c
 tools/build.py --external-module=tools/module_generator/output/my_api_module --cmake-param=-DENABLE_MODULE_MY_API_MODULE=ON
 ```
 
