@@ -203,6 +203,22 @@ JS_SET_CONST_RECORD = '''
   memcpy(&{NAME}, {RECORD}_void_ptr, sizeof({TYPE}));
 '''
 
+# Object to struct/union pointer
+JS_TO_RECORD_PTR = '''
+  // create a record pointer from a jerry_value_t
+  void* {NAME}_void_ptr;
+  const jerry_object_native_info_t* {NAME}_type_ptr;
+  bool {NAME}_has_ptr = jerry_get_object_native_pointer({JVAL}, &{NAME}_void_ptr, &{NAME}_type_ptr);
+
+  if (!{NAME}_has_ptr ||
+      ({NAME}_type_ptr != &{RECORD}_type_info && {NAME}_type_ptr != &{RECORD}_type_info_static)) {{
+    char const *msg = "Failed to get native {TYPE} pointer";
+    return jerry_create_error(JERRY_ERROR_TYPE, (const jerry_char_t *)msg);
+  }}
+
+  {TYPE} * {NAME} = ({TYPE}*){NAME}_void_ptr;
+'''
+
 # Function to C function
 JS_TO_FUNCTION = '''
   // create a function pointer from a jerry_value_t
@@ -416,7 +432,7 @@ JS_RECORD_RETURN = '''
 '''
 
 JS_GET_PROP_STRUCT = '''
-  {TYPE} {NAME}{ARRAY};
+  {TYPE} {NAME}{INIT};
   jerry_value_t {NAME}_name = jerry_create_string((const jerry_char_t *) "{NAME}");
   jerry_value_t {NAME}_value = jerry_get_property(args_p[0], {NAME}_name);
   jerry_release_value({NAME}_name);
@@ -433,7 +449,7 @@ JS_GET_PROP_UNION = '''
   jerry_release_value({NAME}_name);
   if (!jerry_value_is_undefined({NAME}_value))
   {{
-    {TYPE} {NAME}{ARRAY};
+    {TYPE} {NAME}{INIT};
 {GET_VAL}
     jerry_release_value({NAME}_value);
 {RET}
@@ -497,6 +513,19 @@ JS_REGIST_CONST_MEMBER = '''
   {NAME}_prop_desc.value = {NAME}_js;
   jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{NAME}");
   jerry_value_t {NAME}_return_value = jerry_define_own_property (js_obj, {NAME}_prop_name, &{NAME}_prop_desc);
+  jerry_release_value ({NAME}_return_value);
+  jerry_release_value ({NAME}_prop_name);
+  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
+'''
+
+JS_REGIST_CONST_RECORD = '''
+  // set a constant record as a property to the object
+  jerry_property_descriptor_t {NAME}_prop_desc;
+  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
+  {NAME}_prop_desc.is_get_defined = true;
+  {NAME}_prop_desc.getter = jerry_create_external_function ({NAME}_getter);
+  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{VALUE}");
+  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);
   jerry_release_value ({NAME}_prop_name);
   jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
@@ -619,19 +648,6 @@ INIT_REGIST_VALUE = '''
   {NAME}_prop_desc.is_set_defined = true;
   {NAME}_prop_desc.getter = jerry_create_external_function ({NAME}_getter);
   {NAME}_prop_desc.setter = jerry_create_external_function ({NAME}_setter);
-  jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{VALUE}");
-  jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
-  jerry_release_value ({NAME}_return_value);
-  jerry_release_value ({NAME}_prop_name);
-  jerry_free_property_descriptor_fields (&{NAME}_prop_desc);
-'''
-
-INIT_REGIST_CONST_RECORD = '''
-  // set a global variable as a property to the module object
-  jerry_property_descriptor_t {NAME}_prop_desc;
-  jerry_init_property_descriptor_fields (&{NAME}_prop_desc);
-  {NAME}_prop_desc.is_get_defined = true;
-  {NAME}_prop_desc.getter = jerry_create_external_function ({NAME}_getter);
   jerry_value_t {NAME}_prop_name = jerry_create_string ((const jerry_char_t *)"{VALUE}");
   jerry_value_t {NAME}_return_value = jerry_define_own_property ({OBJECT}, {NAME}_prop_name, &{NAME}_prop_desc);
   jerry_release_value ({NAME}_return_value);

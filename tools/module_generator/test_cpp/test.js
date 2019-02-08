@@ -200,6 +200,19 @@ assert.equal(lib.f_func_ptr(null), 0);
 assert.equal(lib.f_func_ptr(function () {
   return 42;
 }), 42);
+s.c = '\u0000';
+s.i = 0;
+assert.equal(s.c, '\u0000');
+assert.equal(s.i, 0);
+lib.f_struct_ptr(s);
+assert.equal(s.c, 's');
+assert.equal(s.i, 42);
+u.i = 0;
+assert.equal(u.c, '\u0000');
+assert.equal(u.i, 0);
+lib.f_union_ptr(u);
+assert.equal(u.c, 'A');
+assert.equal(u.i, 65);
 
 // CLASS
 test = new lib.Test();
@@ -345,5 +358,3 @@ with (lib.test_ns) {
     assert.equal(test_ns_nested_ns_A.foo(), 2);
   }
 }
-
-console.log('Test Run Succeeded!');

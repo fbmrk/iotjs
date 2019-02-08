@@ -341,6 +341,10 @@ class ClangRecordDecl(ClangASTNode):
             return self.type.name.split('::')[-1]
 
     @property
+    def ns_name(self):
+        return self.type.name.replace('::', '_')
+
+    @property
     def constructor(self):
         return self._constructor
 

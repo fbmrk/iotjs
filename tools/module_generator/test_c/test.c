@@ -80,3 +80,12 @@ int f_func_ptr(func_ptr f) {
   }
   return 0;
 }
+
+void f_struct_ptr(S* s) {
+  s->c = 's';
+  s->i = 42;
+}
+
+void f_union_ptr(U* u) {
+  u->i = 65;
+}

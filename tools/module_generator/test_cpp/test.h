@@ -81,6 +81,8 @@ int* f_int_ptr(int*);
 int* f_int_arr(int[5]);
 int f_func(func);
 int f_func_ptr(func_ptr);
+void f_struct_ptr(S*);
+void f_union_ptr(U*);
 
 class O {
   int _i;
