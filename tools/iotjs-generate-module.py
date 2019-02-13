@@ -22,9 +22,7 @@ from common_py.system.filesystem import FileSystem as fs
 
 from module_generator.source_generator import CSourceGenerator, \
     CppSourceGenerator
-from module_generator.clang_translation_unit_visitor import ClangTUVisitor, \
-    ClangTUChecker
-
+from module_generator.clang_translation_unit_visitor import ClangTUVisitor
 
 
 def generate_c_source(header, api_headers, dirname, args):
@@ -39,8 +37,12 @@ def generate_c_source(header, api_headers, dirname, args):
     if args.includes:
         visit_args += ['-I' + inc for inc in args.includes.read().splitlines()]
 
-    visitor = ClangTUVisitor(args.lang, header, api_headers, visit_args)
+    visitor = ClangTUVisitor(args.lang, header, api_headers, args.check_all, 
+                             visit_args)
     visitor.visit()
+
+    if args.check or args.check_all:
+        visitor.check(visitor)
 
     if args.lang == 'c':
         generator = CSourceGenerator()
@@ -142,11 +144,6 @@ def generate_module(args):
 
     with open(header_file, 'w') as h:
         h.write(header_text)
-
-    if args.check or args.check_all:
-        checker = ClangTUChecker(header_file, api_headers, args.check_all)
-        checker.check()
-        return
 
     c_file = generate_c_source(header_file, api_headers, dirname, args)
 

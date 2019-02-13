@@ -257,6 +257,8 @@ class ClangMacroDef(ClangASTNode):
 
 class ClangRecordConstructor:
     def __init__(self, cursor_list):
+        if cursor_list:
+            self._cursor = cursor_list[0]
 
         self._parm_decls = {}
         for cursor in cursor_list:
@@ -270,15 +272,11 @@ class ClangRecordConstructor:
                     param_lists.append(arguments)
 
             for param_list in param_lists:
-                params = []
-                for param in param_list:
-                    param = ClangASTNode(param)
-                    params.append(param)
+                params = [ClangASTNode(param) for param in param_list]
                 if len(param_list) in self._parm_decls:
                     self._parm_decls[len(param_list)].append(params)
                 else:
                     self._parm_decls[len(param_list)] = [params]
-
 
     @property
     def params(self):
@@ -412,7 +410,7 @@ class ClangNamespace:
 # This class responsible for initializing and visiting
 # the AST provided by libclang.
 class ClangTUVisitor:
-    def __init__(self, lang, header, api_headers, args):
+    def __init__(self, lang, header, api_headers, check_all, args):
         # TODO: Avoid hard-coding paths and args in general.
         Config.set_library_file('libclang-6.0.so.1')
         index = Index.create()
@@ -428,6 +426,7 @@ class ClangTUVisitor:
                               diag.location.line, diag.location.column))
 
         self.api_headers = api_headers
+        self.check_all = check_all
         self.enum_constant_decls = []
         self.function_decls = []
         self.var_decls = []
@@ -491,201 +490,263 @@ class ClangTUVisitor:
                                                first.token_kinds[1:] +
                                                second.token_kinds[i+1:])
 
+    def ok(self, msg):
+        return '\033[92m{}\033[00m'.format(msg)
 
-class ClangTUChecker:
+    def warn(self, msg):
+        return '\033[91m{}\033[00m'.format(msg)
 
-    valid_types = [
-    #void
-    TypeKind.VOID,
-    # char
-    TypeKind.CHAR_U, # valid pointer types
-    TypeKind.UCHAR,
-    TypeKind.CHAR16,
-    TypeKind.CHAR32,
-    TypeKind.CHAR_S,
-    TypeKind.SCHAR,
-    TypeKind.WCHAR,
-    # number
-    TypeKind.USHORT,
-    TypeKind.UINT,
-    TypeKind.ULONG,
-    TypeKind.ULONGLONG,
-    TypeKind.UINT128,
-    TypeKind.SHORT,
-    TypeKind.INT,
-    TypeKind.LONG,
-    TypeKind.LONGLONG,
-    TypeKind.INT128,
-    TypeKind.FLOAT,
-    TypeKind.DOUBLE,
-    TypeKind.LONGDOUBLE, # valid pointer types end
-    # enum
-    TypeKind.ENUM,
-    # _Bool
-    TypeKind.BOOL
-    ]
+    def check(self, namespace):
+        if namespace == self:
+            self.check_macros()
+        self.check_variables(namespace)
 
-    function_types = [
-    TypeKind.FUNCTIONNOPROTO,
-    TypeKind.FUNCTIONPROTO
-    ]
-
-    def __init__(self, header, api_headers, check_all):
-        # TODO: Avoid hard-coding paths and args in general.
-        Config.set_library_file('libclang-6.0.so.1')
-        index = Index.create()
-
-        # TODO: C++ needs a different configuration (-x C++).
-        self.clang_args = ['-x', 'c', '-I/usr/include/clang/5.0/include/']
-        self.translation_unit = index.parse(header, self.clang_args, options=1)
-
-        self.api_headers = api_headers
-        self.check_all = check_all
-
-        self.OK = '\033[92m'
-        self.WARN = '\033[91m'
-        self.ENDC = '\033[00m'
-
-    def check(self):
-        children = [c for c in self.translation_unit.cursor.get_children()
-                    if (c.location.file != None and
-                        c.location.file.name in self.api_headers)]
-
-        macros = [ClangMacroDef(macro) for macro in children
-                  if macro.kind == CursorKind.MACRO_DEFINITION]
-
-        for first in macros:
-            for second in macros:
-                for i, token in enumerate(second.tokens):
-                    if i and first.name == token:
-                        second.tokens = (second.tokens[:i] +
-                                          first.tokens[1:] +
-                                          second.tokens[i+1:])
-                        second.token_kinds = (second.token_kinds[:i] +
-                                               first.token_kinds[1:] +
-                                               second.token_kinds[i+1:])
-
-        for macro in macros:
-            location = (macro._cursor.location.file.name +
-                        ':' + str(macro._cursor.location.line) +
-                        ':' + str(macro._cursor.location.column) + '\n')
-            if not macro.is_valid():
-                print (self.WARN + 'Unsupported macro' + self.ENDC + ': ' +
-                       macro.name + '\nat ' + location)
+        for record in namespace.record_decls:
+            record_is_ok, record_msg = self.check_record(record)
+            if not record_is_ok:
+                print(record_msg)
+                print(str(record._cursor.location) + '\n')
             elif self.check_all:
-                print (self.OK + 'Supported macro' + self.ENDC + ': ' +
-                       macro.name + '\nat ' + location)
+                print(self.ok('Supported record: ' + record.name) + '\n')
 
-        for cursor in children:
+        for func in namespace.function_decls:
+            if self.is_cpp:
+                param_msg = []
+                param_is_ok = True
+                for _, param_lists in func.params.items():
+                    for p_list in param_lists:
+                        is_ok, msg = self.check_parameters(p_list)
+                        if not is_ok:
+                            param_is_ok = False
+                            p_types = ', '.join([p.type.name for p in p_list])
+                            warn = self.warn(
+                                'Unsupported overload: {}({})'.format(func.name,
+                                                                      p_types))
+                            param_msg.append(warn)
+                            param_msg.append(msg)
+                param_msg = '\n'.join(param_msg)
+            else:
+                param_is_ok, param_msg = self.check_parameters(func.params)
+
+            ret_is_ok, ret_msg = self.check_return_type(func.return_type)
+            if not (param_is_ok and ret_is_ok):
+                print(self.warn('Unsupported function: ' + func.name))
+                if param_msg:
+                    print(param_msg)
+                if ret_msg:
+                    print(ret_msg)
+                print(str(func._cursor.location) + '\n')
+            elif self.check_all:
+                print(self.ok('Supported function: ' + func.name) + '\n')
+
+        for ns in namespace.namespaces:
+            self.check(ns)
+
+    def check_macros(self):
+        for macro in self.macro_defs:
+            if not macro.is_valid():
+                print(self.warn('Unsupported macro: ' + macro.name))
+                print(str(macro._cursor.location) + '\n')
+            elif self.check_all:
+                print(self.ok('Supported macro: ' + macro.name) + '\n')               
+
+    def check_variables(self, namespace):
+        for var in namespace.var_decls:
+            is_supported = False
             msg = ''
-            location = (cursor.location.file.name +
-                        ':' + str(cursor.location.line) +
-                        ':' + str(cursor.location.column) + '\n')
-            if cursor.kind == CursorKind.FUNCTION_DECL:
-                is_ok, msg = self.check_func(cursor)
-                if not is_ok:
-                    print (self.WARN + 'Unsupported function' + self.ENDC + ': '
-                           + cursor.spelling + '() ' + '\nat ' + location + msg)
-                elif self.check_all:
-                    print (self.OK + 'Supported function' + self.ENDC + ': ' +
-                           cursor.spelling + '() ' + '\nat ' + location + msg)
-            elif cursor.kind == CursorKind.VAR_DECL:
-                if cursor.type.get_canonical().kind == TypeKind.RECORD:
-                    cursor_type = cursor.type.get_canonical().get_declaration()
-                    is_ok, msg = self.check_record(cursor_type)
-                else:
-                    is_ok = self.check_type(cursor.type)
+            if (var.type.is_char() or var.type.is_number() or
+                var.type.is_enum() or var.type.is_bool()):
+                is_supported = True
+            elif var.type.is_pointer():
+                pointee = var.type.get_pointee_type()
+                if pointee.is_char() or pointee.is_number():
+                    is_supported = True
+            elif var.type.is_record():
+                var_record = var.type.get_as_record_decl()
+                is_supported, msg = self.check_record(var_record)
 
-                if not is_ok:
-                    print (self.WARN + 'Unsupported variable' + self.ENDC + ': '
-                           + cursor.type.spelling + ' ' + cursor.spelling +
-                           '\nat ' + location + msg)
-                elif self.check_all:
-                    print (self.OK + 'Supported variable' + self.ENDC + ': ' +
-                           cursor.type.spelling + ' ' + cursor.spelling +
-                           '\nat ' + location + msg)
+            if not is_supported:
+                print(self.warn(
+                    'Unsupported variable: {} {}'.format(var.type.name,
+                                                         var.name)))
+                if msg:
+                    print(msg)
+                print(str(var._cursor.location) + '\n')
+            elif self.check_all:
+                print(self.ok(
+                    'Supported variable: {} {}'.format(var.type.name,
+                                                       var.name)) + '\n')
 
-    def check_type(self, cursor_type):
-        cursor_type = cursor_type.get_canonical()
-        if cursor_type.kind == TypeKind.POINTER:
-            if cursor_type.get_pointee().kind not in self.valid_types[1:21]:
-                return False
-        elif cursor_type.kind == TypeKind.CONSTANTARRAY:
-            if cursor_type.element_type.kind not in self.valid_types[1:21]:
-                return False
-        elif cursor_type.kind not in self.valid_types:
-            return False
-        return True
-
-    def check_func(self, cursor):
-        message = ''
-        param_is_ok = True
-
-        if cursor.type.get_canonical().kind == TypeKind.POINTER:
-            return_type = cursor.type.get_canonical().get_pointee().get_result()
-        else:
-            return_type = cursor.type.get_canonical().get_result()
-
+    def check_record(self, record):
         record_msg = ''
-        if return_type.get_canonical().kind == TypeKind.RECORD:
-            decl = return_type.get_canonical().get_declaration()
-            ret_is_ok, record_msg = self.check_record(decl)
-        else:
-            ret_is_ok = self.check_type(return_type)
-
-        if not ret_is_ok:
-            message += (self.WARN + 'Unsupported return type' + self.ENDC +
-                        ': ' + return_type.spelling + '\n' + record_msg)
-
-        if cursor.type.kind == TypeKind.TYPEDEF:
-            function_children = cursor.type.get_declaration().get_children()
-        else:
-            function_children = cursor.get_children()
-
-        for child in function_children:
+        # Check fields
+        field_msg = []
+        field_is_ok = True
+        for field in record.field_decls:
+            is_supported = False
             msg = ''
-            is_ok = True
-            child_type = child.type.get_canonical()
-            if child.kind == CursorKind.PARM_DECL:
-                if child_type.kind == TypeKind.RECORD:
-                    is_ok, msg = self.check_record(child_type.get_declaration())
-                elif (child_type.kind in self.function_types or
-                      child_type.get_pointee().kind in self.function_types):
-                      is_ok, msg = self.check_func(child)
-                else:
-                    if not self.check_type(child.type):
-                        is_ok = False
+            if (field.type.is_char() or field.type.is_number() or
+                field.type.is_enum() or field.type.is_bool()):
+                is_supported = True
+            elif field.type.is_pointer():
+                pointee = field.type.get_pointee_type()
+                if pointee.is_char() or pointee.is_number():
+                    is_supported = True
+            elif field.type.is_record():
+                field_record = field.type.get_as_record_decl()
+                is_supported, msg = self.check_record(field_record)
 
-                if not is_ok:
-                    param_is_ok = False
-                    message += (self.WARN + 'Unsupported parameter type' +
-                                self.ENDC + ': ' + child.type.spelling + '\n' +
-                                msg)
+            if not is_supported:
+                field_is_ok = False
+                warn = self.warn(
+                    'Unsupported field: {} {}'.format(field.type.name,
+                                                      field.name))
+                field_msg.append(warn)
+                if msg:
+                    field_msg.append(msg)
 
-        return (ret_is_ok and param_is_ok), message
+        # Check constructor
+        constructor_msg = []
+        constructor_is_ok = True
+        for _, param_lists in record.constructor.params.items():
+            for param_list in param_lists:
+                param_is_ok, param_msg = self.check_parameters(param_list)
+                if not param_is_ok:
+                    constructor_is_ok = False
+                    p_types = ', '.join([p.type.name for p in param_list])
+                    warn = self.warn(
+                        'Unsupported constructor: {}({})'.format(record.name,
+                                                                 p_types))
+                    constructor_msg.append(warn)
+                    constructor_msg.append(param_msg)
 
-    def check_record(self, cursor):
-        message = ''
-        record_is_ok = True
+        # Check methods
+        method_msg = []
+        method_is_ok = True
+        for method in record.methods:
+            for _, param_lists in method.params.items():
+                for param_list in param_lists:
+                    param_is_ok, param_msg = self.check_parameters(param_list)
+                    if not param_is_ok:
+                        method_is_ok = False
+                        p_types = ', '.join([p.type.name for p in param_list])
+                        warn = self.warn(
+                            'Unsupported overload: {}({})'.format(method.name,
+                                                                  p_types))
+                        method_msg.append(warn)
+                        method_msg.append(param_msg)
 
-        for child in cursor.get_children():
+            ret_is_ok, ret_msg = self.check_return_type(method.return_type)
+
+            if not ret_is_ok:
+                method_is_ok = False
+                method_msg.append(ret_msg)
+
+            if not method_is_ok:
+                warn = self.warn('Unsupported method: ' + method.name)
+                method_msg.insert(0, warn)
+
+        record_msg = ('\n'.join(field_msg) + '\n'.join(constructor_msg) +
+                      '\n'.join(method_msg))
+        record_is_ok =  field_is_ok and constructor_is_ok and method_is_ok
+
+        if not record_is_ok:
+            record_msg = (self.warn('Unsupported record: ' + record.name) + '\n'
+                          + record_msg)
+
+        return record_is_ok, record_msg
+
+    def check_parameters(self, param_list):
+        param_msg = []
+        param_is_ok = True
+        for param in param_list:
+            is_supported = False
             msg = ''
-            is_ok = True
-            child_type = child.type.get_canonical()
-            if child.kind == CursorKind.FIELD_DECL:
-                if child_type.kind == TypeKind.RECORD:
-                    is_ok, msg = self.check_record(child_type.get_declaration())
-                elif (child_type.kind in self.function_types or
-                      child_type.get_pointee().kind in self.function_types):
-                      is_ok, msg = self.check_func(child)
-                else:
-                    if not self.check_type(child.type):
-                        is_ok = False
+            if (param.type.is_char() or param.type.is_number() or
+                param.type.is_enum() or param.type.is_bool()):
+                is_supported = True
+            elif param.type.is_pointer():
+                pointee = param.type.get_pointee_type()
+                if pointee.is_char() or pointee.is_number():
+                    is_supported = True
+                elif pointee.is_record():
+                    record = pointee.get_as_record_decl()
+                    is_supported, msg = self.check_record(record)
+                elif pointee.is_function():
+                    is_supported = self.check_func_ptr(param.get_as_function())
+            elif param.type.is_record():
+                record = param.get_as_record_decl()
+                is_supported, msg = self.check_record(record)
+            elif param.type.is_function():
+                is_supported = self.check_func_ptr(param.get_as_function())
 
-                if not is_ok:
-                    record_is_ok = False
-                    message += (self.WARN + 'Unsupported member type' +
-                                self.ENDC + ': ' + child.type.spelling + '\n' +
-                                msg)
+            if not is_supported:
+                param_is_ok = False
+                warn = self.warn(
+                    'Unsupported parameter: {} {}'.format(param.type.name,
+                                                          param.name))
+                param_msg.append(warn)
+                if msg:
+                    param_msg.append(msg)
 
-        return record_is_ok, message
+        return param_is_ok, '\n'.join(param_msg)
+
+    def check_return_type(self, return_type):
+        msg = ''
+        return_type_is_ok = False
+        if (return_type.is_void() or return_type.is_char() or
+            return_type.is_number() or return_type.is_enum() or
+            return_type.is_bool()):
+            return_type_is_ok = True
+        elif return_type.is_pointer():
+            pointee = return_type.get_pointee_type()
+            if pointee.is_char() or pointee.is_number():
+                return_type_is_ok = True
+        elif return_type.is_record():
+            record = return_type.get_as_record_decl()
+            return_type_is_ok, msg = self.check_record(record)
+
+        if not return_type_is_ok:
+            warn = self.warn('Unsupported return type: ' + return_type.name)
+            if msg:
+                msg = warn + '\n' + msg
+            else:
+                msg = warn
+
+        return return_type_is_ok, msg
+
+    def check_func_ptr(self, function):
+        param_is_ok = True
+        for param in function.params:
+            is_supported = False
+            if (param.type.is_char() or param.type.is_number() or
+                param.type.is_enum() or param.type.is_bool()):
+                is_supported = True
+            elif param.type.is_pointer():
+                pointee = param.type.get_pointee_type()
+                if pointee.is_char() or pointee.is_number():
+                    is_supported = True
+            elif param.type.is_record():
+                record = param.get_as_record_decl()
+                is_supported, _ = self.check_record(record)
+            if not is_supported:
+                param_is_ok = False
+                break
+
+        ret_type = function.return_type
+        ret_is_ok = False
+        if (ret_type.is_void() or ret_type.is_char() or ret_type.is_number() or
+            ret_type.is_enum() or ret_type.is_bool()):
+            ret_is_ok = True
+        elif ret_type.is_pointer():
+            pointee = ret_type.get_pointee_type()
+            if pointee.is_char() or pointee.is_number():
+                ret_is_ok = True
+            elif pointee.is_record():
+                record = pointee.get_as_record_decl()
+                ret_is_ok, _ = self.check_record(record)
+        elif ret_type.is_record():
+            record = ret_type.get_as_record_decl()
+            ret_is_ok, _ = self.check_record(record)
+
+        return (param_is_ok and ret_is_ok)
