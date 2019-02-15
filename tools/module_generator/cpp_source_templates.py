@@ -115,6 +115,28 @@ JS_VALUE_IS = '''jerry_value_is_{TYPE} ({JVAL})'''
 
 JS_POINTER_IS = '''(jerry_value_is_{TYPE} ({JVAL}) || jerry_value_is_null ({JVAL}))'''
 
+JS_CHECK_RECORD = '''
+bool jerry_value_is_{RECORD} (jerry_value_t jval)
+{{
+  if (!jerry_value_is_object (jval))
+  {{
+    return false;
+  }}
+
+  void* ptr;
+  const jerry_object_native_info_t* type_ptr;
+  bool has_ptr = jerry_get_object_native_pointer(jval, &ptr, &type_ptr);
+
+  if (!has_ptr ||
+      (type_ptr != &{RECORD}_type_info && type_ptr != &{RECORD}_type_info_static))
+  {{
+    return false;
+  }}
+
+  return true;
+}}
+'''
+
 
 # Templates for record types
 

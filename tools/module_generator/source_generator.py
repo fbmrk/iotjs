@@ -743,7 +743,8 @@ class CppSourceGenerator(CSourceGenerator):
         elif c_type.is_bool():
             return cpp.JS_VALUE_IS.format(TYPE='boolean', JVAL=jval)
         elif c_type.is_record():
-            return cpp.JS_VALUE_IS.format(TYPE='object', JVAL=jval)
+            record = c_type.get_as_record_decl().ns_name
+            return cpp.JS_VALUE_IS.format(TYPE=record, JVAL=jval)
         elif c_type.is_function():
             return cpp.JS_POINTER_IS.format(TYPE='function', JVAL=jval)
         elif c_type.is_pointer():
@@ -754,8 +755,12 @@ class CppSourceGenerator(CSourceGenerator):
             elif c_type.get_pointee_type().is_function():
                 return cpp.JS_POINTER_IS.format(TYPE='function', JVAL=jval)
             elif c_type.get_pointee_type().is_record():
-                return cpp.JS_POINTER_IS.format(TYPE='object', JVAL=jval)
+                record = c_type.get_pointee_type().get_as_record_decl().ns_name
+                return cpp.JS_POINTER_IS.format(TYPE=record, JVAL=jval)
         return ''
+
+    def js_check_record(self, record):
+        return cpp.JS_CHECK_RECORD.format(RECORD=record)
 
     def js_record_destructor(self, _type, record):
         return cpp.JS_RECORD_DESTRUCTOR.format(TYPE=_type, RECORD=record)
@@ -817,7 +822,8 @@ class CppSourceGenerator(CSourceGenerator):
         ns_name = self.ns_name + name
         record_type = record.type.name
         self.record_names.append(name)
-        result = [self.js_record_destructor(record_type, ns_name)]
+        result = [self.js_record_destructor(record_type, ns_name),
+                  self.js_check_record(ns_name)]
         regist = []
 
         for member in record.field_decls:
