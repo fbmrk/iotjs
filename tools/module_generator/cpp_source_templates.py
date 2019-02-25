@@ -290,7 +290,7 @@ JS_METHOD_CASE = '''
 
 # Function
 JS_EXT_CPP_FUNC = '''
-// external function
+// external function for API functions
 jerry_value_t {NAME}{SUFF}_handler (const jerry_value_t function_obj,
                                     const jerry_value_t this_val,
                                     const jerry_value_t args_p[],

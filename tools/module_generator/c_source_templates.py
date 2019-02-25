@@ -187,7 +187,7 @@ JS_SET_RECORD = '''
   {NAME} = *(({TYPE}*){RECORD}_void_ptr);
 '''
 
-# Set a struct/union
+# Set a const struct/union
 JS_SET_CONST_RECORD = '''
   // set the value of {NAME}
   void* {RECORD}_void_ptr;
@@ -231,6 +231,7 @@ JS_TO_FUNCTION = '''
 '''
 
 JS_CB_FUNCTION = '''
+// native callback function
 jerry_value_t {FUNC}_{NAME}_js;
 {RET_TYPE} {FUNC}_{NAME} ({PARAMS})
 {{
@@ -383,7 +384,7 @@ jerry_value_t {RECORD}_{NAME} (const jerry_value_t function_obj,
 '''
 
 JS_RECORD_GETTER = '''
-// external function for getter/setter of record member
+// external function for record getter
 jerry_value_t {RECORD}{NAME}_getter (const jerry_value_t function_obj,
                                      const jerry_value_t this_val,
                                      const jerry_value_t args_p[],
@@ -476,7 +477,7 @@ jerry_value_t {RECORD}_js_creator ({TYPE}* native_ptr)
 '''
 
 JS_REGIST_MEMBER = '''
-  // set record member as a property to the object
+  // set record's member as a property to the object
   jerry_property_descriptor_t {RECORD}_{NAME}_prop_desc;
   jerry_init_property_descriptor_fields (&{RECORD}_{NAME}_prop_desc);
   {RECORD}_{NAME}_prop_desc.is_get_defined = true;
@@ -492,6 +493,7 @@ JS_REGIST_MEMBER = '''
 
 
 JS_REGIST_RECORD = '''
+  // set record as a property to the object
   jerry_value_t {NAME}_js = {RECORD}_js_creator (&{REF});
   jerry_set_object_native_pointer({NAME}_js, &{REF}, &{RECORD}_type_info_static);
   jerry_property_descriptor_t {NAME}_js_prop_desc;
