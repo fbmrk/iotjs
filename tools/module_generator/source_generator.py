@@ -765,9 +765,9 @@ class CppSourceGenerator(CSourceGenerator):
     def js_record_destructor(self, _type, record):
         return cpp.JS_RECORD_DESTRUCTOR.format(TYPE=_type, RECORD=record)
 
-    def js_record_constructor_cpp(self, _type, record, case):
+    def js_record_constructor_cpp(self, _type, record, case, suff = ''):
         return cpp.JS_RECORD_CONSTRUCTOR.format(TYPE=_type, RECORD=record,
-                                                CASE=case)
+                                                CASE=case, SUFF=suff)
 
     def js_constr_call(self, condition, get_val, name, params, free):
         return cpp.JS_CONSTR_CALL.format(CONDITION=condition, GET_VAL=get_val,
@@ -785,10 +785,11 @@ class CppSourceGenerator(CSourceGenerator):
     def js_regist_const_member(self, record, name):
         return cpp.JS_REGIST_CONST_MEMBER.format(RECORD=record, NAME=name)
 
-    def js_record_method(self, record, name, _type, result, case, ret_val):
+    def js_record_method(self, record, name, _type, result, case, ret_val,
+                         suff):
         return cpp.JS_RECORD_METHOD.format(RECORD=record, NAME=name, TYPE=_type,
                                            RESULT=result, CASE=case,
-                                           RET_VAL=ret_val)
+                                           RET_VAL=ret_val, SUFF=suff)
 
     def js_method_call(self, condition, get_val, result, name, params, free):
         return cpp.JS_METHOD_CALL.format(CONDITION=condition, GET_VAL=get_val,
@@ -802,9 +803,9 @@ class CppSourceGenerator(CSourceGenerator):
         return cpp.JS_METHOD_CASE.format(NUM=num, CALLS=calls, RECORD=record,
                                          NAME=name)
 
-    def js_ext_cpp_func(self, name, result, case, ret_val):
+    def js_ext_cpp_func(self, name, result, case, ret_val, suff):
         return cpp.JS_EXT_CPP_FUNC.format(NAME=name, RESULT=result, CASE=case,
-                                          RET_VAL=ret_val)
+                                          RET_VAL=ret_val, SUFF=suff)
 
     def js_func_call(self, condition, get_val, result, name, params, free):
         return cpp.JS_FUNC_CALL.format(CONDITION=condition, GET_VAL=get_val,
@@ -821,7 +822,6 @@ class CppSourceGenerator(CSourceGenerator):
         name = record.name
         ns_name = self.ns_name + name
         record_type = record.type.name
-        self.record_names.append(name)
         result = [self.js_record_destructor(record_type, ns_name),
                   self.js_check_record(ns_name)]
         regist = []
@@ -859,17 +859,27 @@ class CppSourceGenerator(CSourceGenerator):
         for method in record.methods:
             result.append(self.create_ext_function(method, name, record_type,
                                                    is_method=True))
-            regist.append(self.js_regist_method(ns_name, method.name))
+            regist.append(self.js_regist_method(ns_name, method.name + method.suffix))
 
         regist = ('\n').join(regist)
         result.append(self.js_record_creator(record_type, ns_name, regist))
 
         if record.has_constructor():
-            cases = self.create_ext_function(record.constructor, name,
-                                             is_constructor=True)
-            result.append(self.js_record_constructor_cpp(record_type, ns_name,
-                                                         cases))
+            if not record.constructors:
+                self.record_names.append(name)
+                cases = self.js_constr_case_0(self.scope_name + name)
+                result.append(self.js_record_constructor_cpp(record_type,
+                                                             ns_name, cases))
+            else:
+                for constr in record.constructors:
+                    self.record_names.append(name + constr.suffix)
+                    cases = self.create_ext_function(constr, name,
+                                                     is_constructor=True)
+                    result.append(self.js_record_constructor_cpp(record_type,
+                                                                 ns_name, cases,
+                                                                 constr.suffix))
         else:
+            self.record_names.append(name)
             result.append(self.create_record_constructor(record))
 
         return '\n'.join(result)
@@ -889,7 +899,7 @@ class CppSourceGenerator(CSourceGenerator):
             else:
                 result = 'result = '
 
-        if is_constructor and (0 in func.params or not func.params):
+        if is_constructor and 0 in func.params:
             cases.append(self.js_constr_case_0(scope_name))
             if func.params:
                 del func.params[0]
@@ -964,11 +974,12 @@ class CppSourceGenerator(CSourceGenerator):
 
         if is_method:
             return self.js_record_method(self.ns_name + record_name, name,
-                                         record_type, result, cases, ret_val)
+                                         record_type, result, cases, ret_val,
+                                         func.suffix)
         else:
-            self.function_names.append(name)
+            self.function_names.append(name + func.suffix)
             return callbacks + self.js_ext_cpp_func(self.ns_name + name, result,
-                                                    cases, ret_val)
+                                                    cases, ret_val, func.suffix)
 
     def init_func(self, name, body):
         return cpp.INIT_FUNC.format(NAME=name, BODY=body)

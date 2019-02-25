@@ -88,6 +88,27 @@ cpp_lib.foo(); // call the C++ function with the default parameter
 cpp_lib.foo(42);
 ```
 
+**NOTE**: There are cases when you can't decide on the API side what is the real type of a JavaScript value. For example there are two overload of a C++ function:
+
+`void f(int);`
+
+`void f(double);`
+
+In the binding layer you can check that the parameter is a number or not, but you don't know it is an integer or a floating point number, so it isn't clear what overload you should call. The generator's solution for the problem is using suffixes. If you generate the binding layer for the example code above you will get a message like that:
+```
+WARN: The following overload of f has been renamed to f_0 :
+void f ( int )
+WARN: The following overload of f has been renamed to f_1 :
+void f ( double )
+```
+The rigth usage of the **f** function in that case is the following:
+```javascript
+var cpp_lib = require('module_name');
+cpp_lib.f_0(1); // Use f_0 for integer parameter
+cpp_lib.f_1(1.5); // Use f_1 for floating point parameter
+```
+
+
 #### Variables:
 
 The global variables of the C/C++ library are also represented as properties. If there is a declaration, like `int a;` in the C library, then the object has a property with the name `a`, and you can get and set its value, but if there is a definition, like `const int b = 42;` you can only read the value from the property and you can not modify it.

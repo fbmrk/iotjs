@@ -256,36 +256,108 @@ class ClangMacroDef(ClangASTNode):
 
 
 class ClangRecordConstructor:
-    def __init__(self, cursor_list):
+    def __init__(self, cursor_list, is_constructor = True, func_list = []):
+        self._suffix = ''
         if cursor_list:
             self._cursor = cursor_list[0]
 
         self._parm_decls = {}
-        for cursor in cursor_list:
+        param_lists = []
+        for i, cursor in enumerate(cursor_list):
             arguments = list(cursor.get_arguments())
-            param_lists = [arguments]
+            param_lists.append(([ClangASTNode(a) for a in arguments], i))
 
             # handle default arguments
             for arg in reversed(arguments):
                 if '=' in [t.spelling for t in arg.get_tokens()]:
                     arguments = arguments[:-1]
-                    param_lists.append(arguments)
+                    param_lists.append(([ClangASTNode(a) for a in arguments],
+                                        i))
 
-            for param_list in param_lists:
-                params = [ClangASTNode(param) for param in param_list]
-                if len(param_list) in self._parm_decls:
-                    self._parm_decls[len(param_list)].append(params)
+        # Codes:
+        # String - 0
+        # Number - 1
+        # Boolean - 2
+        # TypedArray - 3
+        # Function - 4
+        # Object - name of the object
+        # Other - 5
+        coded_param_lists = []
+        for param_list, _ in param_lists:
+            coded_params = []
+            for param in param_list:
+                param_t = param.type
+                if (param_t.is_char() or
+                    (param_t.is_pointer() and
+                        param_t.get_pointee_type().is_char())):
+                    coded_params.append(0)
+                elif param_t.is_number() or param_t.is_enum():
+                    coded_params.append(1)
+                elif param_t.is_bool():
+                    coded_params.append(2)
+                elif param_t.is_function():
+                    coded_params.append(4)
+                elif param_t.is_record():
+                    record = param_t.get_as_record_decl().ns_name
+                    coded_params.append(record)
+                elif param_t.is_pointer():
+                    pointee_t = param_t.get_pointee_type()
+                    if pointee_t.is_char():
+                        coded_params.append(0)
+                    elif pointee_t.is_number():
+                        coded_params.append(3)
+                    elif pointee_t.is_function():
+                        coded_params.append(4)
+                    elif pointee_t.is_record():
+                        record = pointee_t.get_as_record_decl().ns_name
+                        coded_params.append(record)
+                    else:
+                        coded_params.append(5)
                 else:
-                    self._parm_decls[len(param_list)] = [params]
+                    coded_params.append(5)
+            coded_param_lists.append(coded_params)
+
+        # Remove lists from `param_lists`,
+        # which have the same JS types of parameters
+        j = 0
+        same_types_params = []
+        for i, coded_params in enumerate(coded_param_lists):
+            if coded_params in coded_param_lists[:i] + coded_param_lists[i+1:]:
+                same_types_params.append(param_lists.pop(j))
+                j -= 1
+            j += 1
+
+        for param_list, _ in param_lists:
+            if len(param_list) in self._parm_decls:
+                self._parm_decls[len(param_list)].append(param_list)
+            else:
+                self._parm_decls[len(param_list)] = [param_list]
+
+        for j, (params, i) in enumerate(same_types_params):
+            if is_constructor:
+                f = ClangRecordConstructor([cursor_list[i]])
+            else:
+                f = ClangRecordMethod(self._cursor.spelling, [cursor_list[i]])
+            f._suffix = '_' + str(j)
+            func_list.append(f)
+            func_name = cursor_list[i].spelling
+            print ('\033[93mWARN: The following overload of ' + func_name +
+                   ' has been renamed to ' + func_name + '_' + str(j) +
+                   ' :\033[00m')
+            print ' '.join(t.spelling for t in cursor_list[i].get_tokens())
 
     @property
     def params(self):
         return self._parm_decls
 
+    @property
+    def suffix(self):
+        return self._suffix
+
 
 class ClangRecordMethod(ClangRecordConstructor):
-    def __init__(self, name, cursor_list):
-        ClangRecordConstructor.__init__(self, cursor_list)
+    def __init__(self, name, cursor_list, func_list = []):
+        ClangRecordConstructor.__init__(self, cursor_list, False, func_list)
 
         self._method_name = name
         return_type = cursor_list[0].type.get_canonical().get_result()
@@ -309,6 +381,11 @@ class ClangRecordDecl(ClangASTNode):
         self._has_constructor = True
         self._has_default_constructor = True
         self._has_copy_constructor = True
+        self._constructors = []
+        if cursor.spelling:
+            self._name = cursor.spelling
+        else:
+            self._name = self.type.name.split('::')[-1]
 
         constructors = []
         methods = {}
@@ -328,23 +405,28 @@ class ClangRecordDecl(ClangASTNode):
             self._has_constructor = False
             self._has_default_constructor = False
             self._has_copy_constructor = False
-        self._constructor = ClangRecordConstructor(constructors)
-        self._methods = [ClangRecordMethod(k, v) for k, v in methods.items()]
+        elif constructors:
+            constructor = ClangRecordConstructor(constructors, True,
+                                                 self._constructors)
+            if constructor.params:
+                self._constructors.append(constructor)
+        self._methods = []
+        for name, cursor_list in methods.items():
+            method = ClangRecordMethod(name, cursor_list, self._methods)
+            if method.params:
+                self._methods.append(method)
 
     @property
     def name(self):
-        if self._cursor.spelling:
-            return self._cursor.spelling
-        else:
-            return self.type.name.split('::')[-1]
+        return self._name
 
     @property
     def ns_name(self):
         return self.type.name.replace('::', '_')
 
     @property
-    def constructor(self):
-        return self._constructor
+    def constructors(self):
+        return self._constructors
 
     def has_constructor(self):
         return self._has_constructor
@@ -402,7 +484,9 @@ class ClangNamespace:
                         namespaces[child.spelling] = [child]
 
         for name, cursor_list in cpp_funcs.items():
-            self.function_decls.append(ClangRecordMethod(name, cursor_list))
+            func = ClangRecordMethod(name, cursor_list, self.function_decls)
+            if func.params:
+                self.function_decls.append()
 
         for name, cursor_list in namespaces.items():
             self.namespaces.append(ClangNamespace(name, cursor_list))
@@ -473,7 +557,9 @@ class ClangTUVisitor:
                         namespaces[cursor.spelling] = [cursor]
 
         for name, cursor_list in cpp_funcs.items():
-            self.function_decls.append(ClangRecordMethod(name, cursor_list))
+            func = ClangRecordMethod(name, cursor_list, self.function_decls)
+            if func.params:
+                self.function_decls.append(func)
 
         for name, cursor_list in namespaces.items():
             self.namespaces.append(ClangNamespace(name, cursor_list))

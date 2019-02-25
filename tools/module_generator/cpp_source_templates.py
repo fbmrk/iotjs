@@ -158,10 +158,10 @@ static const jerry_object_native_info_t {RECORD}_type_info_static = {{
 # Record constructor
 JS_RECORD_CONSTRUCTOR = '''
 // external function for record constructor
-jerry_value_t {RECORD}_js_constructor (const jerry_value_t function_obj,
-                                       const jerry_value_t this_val,
-                                       const jerry_value_t args_p[],
-                                       const jerry_length_t args_cnt)
+jerry_value_t {RECORD}{SUFF}_js_constructor (const jerry_value_t function_obj,
+                                             const jerry_value_t this_val,
+                                             const jerry_value_t args_p[],
+                                             const jerry_length_t args_cnt)
 {{
   {TYPE}* native_ptr;
   switch (args_cnt) {{
@@ -229,10 +229,10 @@ JS_REGIST_CONST_MEMBER = '''
 # Record method
 JS_RECORD_METHOD = '''
 // external function for record method
-jerry_value_t {RECORD}_{NAME}_handler (const jerry_value_t function_obj,
-                                       const jerry_value_t this_val,
-                                       const jerry_value_t args_p[],
-                                       const jerry_length_t args_cnt)
+jerry_value_t {RECORD}_{NAME}{SUFF}_handler (const jerry_value_t function_obj,
+                                             const jerry_value_t this_val,
+                                             const jerry_value_t args_p[],
+                                             const jerry_length_t args_cnt)
 {{
   void* void_ptr;
   const jerry_object_native_info_t* type_ptr;
@@ -291,10 +291,10 @@ JS_METHOD_CASE = '''
 # Function
 JS_EXT_CPP_FUNC = '''
 // external function
-jerry_value_t {NAME}_handler (const jerry_value_t function_obj,
-                              const jerry_value_t this_val,
-                              const jerry_value_t args_p[],
-                              const jerry_length_t args_cnt)
+jerry_value_t {NAME}{SUFF}_handler (const jerry_value_t function_obj,
+                                    const jerry_value_t this_val,
+                                    const jerry_value_t args_p[],
+                                    const jerry_length_t args_cnt)
 {{
   {RESULT}
   switch (args_cnt) {{
