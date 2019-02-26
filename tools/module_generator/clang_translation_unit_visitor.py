@@ -634,7 +634,7 @@ class ClangTUVisitor:
                 print(self.warn('Unsupported macro: ' + macro.name))
                 print(str(macro._cursor.location) + '\n')
             elif self.check_all:
-                print(self.ok('Supported macro: ' + macro.name) + '\n')               
+                print(self.ok('Supported macro: ' + macro.name) + '\n')
 
     def check_variables(self, namespace):
         for var in namespace.var_decls:

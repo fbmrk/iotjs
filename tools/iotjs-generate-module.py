@@ -37,7 +37,7 @@ def generate_c_source(header, api_headers, dirname, args):
     if args.includes:
         visit_args += ['-I' + inc for inc in args.includes.read().splitlines()]
 
-    visitor = ClangTUVisitor(args.lang, header, api_headers, args.check_all, 
+    visitor = ClangTUVisitor(args.lang, header, api_headers, args.check_all,
                              visit_args)
     visitor.visit()
 

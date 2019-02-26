@@ -859,7 +859,8 @@ class CppSourceGenerator(CSourceGenerator):
         for method in record.methods:
             result.append(self.create_ext_function(method, name, record_type,
                                                    is_method=True))
-            regist.append(self.js_regist_method(ns_name, method.name + method.suffix))
+            regist.append(self.js_regist_method(ns_name,
+                                                method.name + method.suffix))
 
         regist = ('\n').join(regist)
         result.append(self.js_record_creator(record_type, ns_name, regist))
