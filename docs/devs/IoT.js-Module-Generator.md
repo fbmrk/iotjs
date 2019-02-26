@@ -102,16 +102,16 @@ cpp_lib.foo(42);
 
 In the binding layer you can check that the parameter is a number or not, but you don't know it is an integer or a floating point number, so it isn't clear which overload you should call. The generator's solution for the problem is using suffixes. If you generate the binding layer for the example code above you will get a message like that:
 ```
-WARN: The following overload of f has been renamed to f_0 :
+WARN: The following overload of f has been renamed to f_$0 :
 void f ( int )
-WARN: The following overload of f has been renamed to f_1 :
+WARN: The following overload of f has been renamed to f_$1 :
 void f ( double )
 ```
 The rigth usage of the **f** function in that case is the following:
 ```javascript
 var cpp_lib = require('module_name');
-cpp_lib.f_0(1); // Use f_0 with integer parameter
-cpp_lib.f_1(1.5); // Use f_1 with floating point parameter
+cpp_lib.f_$0(1); // Use f_$0 with integer parameter
+cpp_lib.f_$1(1.5); // Use f_$1 with floating point parameter
 ```
 
 

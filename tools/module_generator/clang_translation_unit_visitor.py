@@ -338,11 +338,11 @@ class ClangRecordConstructor:
                 f = ClangRecordConstructor([cursor_list[i]])
             else:
                 f = ClangRecordMethod(self._cursor.spelling, [cursor_list[i]])
-            f._suffix = '_' + str(j)
+            f._suffix = '_$' + str(j)
             func_list.append(f)
             func_name = cursor_list[i].spelling
             print ('\033[93mWARN: The following overload of ' + func_name +
-                   ' has been renamed to ' + func_name + '_' + str(j) +
+                   ' has been renamed to ' + func_name + f._suffix +
                    ' :\033[00m')
             print ' '.join(t.spelling for t in cursor_list[i].get_tokens())
 
