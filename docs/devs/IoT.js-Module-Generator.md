@@ -1,6 +1,8 @@
 # C/C++ API to IoT.js module generator
 
-This tool generates a JS module from a C/C++ API, and you can use it in IoT.js like other modules. The input of the generator is a directory, which contains the C/C++ header files and the static library of the API.
+The module generator is an automatic code generating tool. It generates a binding layer between a C/C++ API and the IoT.js framework and creates a native module which can be easily imported and used in JavaScript.
+
+The input of the generator is a directory, which contains the C/C++ header files and the static library of the API.
 
 1. [Dependencies](#dependencies)
 2. [Features](#features)
@@ -17,6 +19,8 @@ This tool generates a JS module from a C/C++ API, and you can use it in IoT.js l
 5. [Quick example](#quick-example)
 
 ## Dependencies:
+
+The tool uses libclang to analyze the given library and get the necessary informations.
 
 #### Clang library:
 
@@ -35,16 +39,17 @@ apt install python-clang-6.0
 
 ## Features:
 
-The C/C++ library is represented as an object in the JavaScript environment. This object is the result of the `require` function call with the right module name parameter. The generated module name is the name of the input folder with `'_module'` suffix.
+The C/C++ library is represented as an object in the JavaScript environment. This object is the result of the `require` function call with the right module name parameter. The generated module name is the name of the input folder with `'_module'` suffix. If the input folder is `my_api` then you can load the module with the code below:
 
 ```javascript
-var lib = require('module_name');
+var lib = require('my_api_module');
 ```
 
 #### Classes:
 
 If there is a class in the C++ library, the module object has a property with the name of the class, which is a constructor. You can create an object in JavaScript, if you call the constructor with the right parameters. The returned JavaScript variable has some properties, which are represent the members and methods of the class.
 
+C++ header:
 ```cpp
 class MyClass {
   int x;
@@ -55,6 +60,7 @@ public:
   void foo(void); // print x
 };
 ```
+JS file:
 ```javascript
 var cpp_lib = require('module_name');
 
@@ -88,13 +94,13 @@ cpp_lib.foo(); // call the C++ function with the default parameter
 cpp_lib.foo(42);
 ```
 
-**NOTE**: There are cases when you can't decide on the API side what is the real type of a JavaScript value. For example there are two overload of a C++ function:
+**NOTE**: There are cases when you can't decide on the API side what is the real type of a JavaScript value. For example there are two overloads of a C++ function:
 
 `void f(int);`
 
 `void f(double);`
 
-In the binding layer you can check that the parameter is a number or not, but you don't know it is an integer or a floating point number, so it isn't clear what overload you should call. The generator's solution for the problem is using suffixes. If you generate the binding layer for the example code above you will get a message like that:
+In the binding layer you can check that the parameter is a number or not, but you don't know it is an integer or a floating point number, so it isn't clear which overload you should call. The generator's solution for the problem is using suffixes. If you generate the binding layer for the example code above you will get a message like that:
 ```
 WARN: The following overload of f has been renamed to f_0 :
 void f ( int )
@@ -104,8 +110,8 @@ void f ( double )
 The rigth usage of the **f** function in that case is the following:
 ```javascript
 var cpp_lib = require('module_name');
-cpp_lib.f_0(1); // Use f_0 for integer parameter
-cpp_lib.f_1(1.5); // Use f_1 for floating point parameter
+cpp_lib.f_0(1); // Use f_0 with integer parameter
+cpp_lib.f_1(1.5); // Use f_1 with floating point parameter
 ```
 
 
@@ -202,7 +208,8 @@ The table below shows which JavaScript type represent the particular C/C++ type.
 | - | - |
 | void | undefined |
 | char | one length String |
-| int / enum | Number |
+| integers (short/int/long etc.) | Number |
+| enum | Number |
 | float / double | Number |
 | _Bool / bool | Boolean |
 
@@ -216,13 +223,20 @@ If you would like to create a record type variable you have to call a constructo
 
 ### Pointer types:
 
-If there is a char or int pointer in a native function's parameter list and you call this function from JavaScript with a String or TypedArray the binding layer alloc memory for the native pointers. If after the native call the pointers won't be used you should modify the source code of the binding layer and free them.
+If there is a char* or a pointer to a number (short/int/float etc.) in a native function's parameter list and you call this function from JavaScript with a String or TypedArray the binding layer alloc memory for the native pointers. If after the native call the pointers won't be used you should modify the source code of the binding layer and free them.
 
 | C/C++ type | JS type |
 | - | - |
-| char * / char [] | String / Null |
-| int * / int [] | TypedArray / Null |
-| function pointer | Function / Null |
+| char* | String / Null |
+| signed char* | Int8Array |
+| unsigned char* | Uint8Array |
+| short* | Int16Array |
+| unsigned short* | Uint16Array |
+| int* / long* / long long* | Int32Array |
+| unsigned int* / unsigned long* / unsigned long long* | Uint32Array |
+| float* | Float32Array |
+| double* / long double* | Float64Array |
+| function pointer (only as function parameter) | Function / Null |
 | record pointer (only as function parameter) | Object / Null |
 
 **NOTE**: Other types are not supported, which means that you need to implement how you would like to use these parts of the C/C++ API.
@@ -247,7 +261,7 @@ lib.c = 'c';
 var a = lib.f('b');
 ```
 
-##### `int`
+##### `integers`
 ```c
 int i;
 int f(int);
@@ -294,7 +308,7 @@ var a = lib.f(false);
 
 ##### `char*/char[]`
 
-If there is global pointer to a char, its value could be `null` or a `String`.
+If there is global pointer to a char, its value can be `null` or a `String`.
 
 ```c
 char * c_ptr;
@@ -312,7 +326,7 @@ var g = lib.g('1234');
 
 ##### `int*/int[]`
 
-If there is global pointer to a number, its value could be `null` or a `TypedArray`. If there is an array of numbers, it will be a `TypedArray` in the JS environment, and you can set the values by indexing.
+If there is global pointer to a number, its value can be `null` or a `TypedArray`. If there is an array of numbers, it will be a `TypedArray` in the JS environment, and you can set the values by indexing.
 
 ```c
 int * i_ptr;
@@ -438,7 +452,7 @@ You can generate a module using the following command:
 
 ```bash
 # assuming you are in iotjs folder
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG>
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> [OPTIONS]
 ```
 
 The `<INPUT_FOLDER>` should contain the header files and the static library of the C/C++ API. `<LANG>` is the language of the API, which can be `c` or `c++`. These are required arguments for the script. The script generates the source files to the `iotjs/tools/module_generator/output/<INPUT_FOLDER>_module/` folder. The module name will be `<INPUT_FOLDER>_module`. If you would like to modify how the module should work, you have to make some changes in the generated `.c` or `.cpp` file.
@@ -452,16 +466,16 @@ The script has some optional arguments, which are the following:
 The output folder of the generated module. Default is `tools/module_generator/output`
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --out-dir <OUTPUT_FOLDER>
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --out-dir <OUTPUT_FOLDER>
 ```
 
 ##### `--off`
 * `functions` | `variables` | `enums` | `macros`
 
-Turn off the processing of the given part of the C API, which means that the script will not generate any code for this part, so you can not use this in the JS environment.
+Turn off the processing of the given part of the API, which means that the script will not generate any code for this part, so you can not use this in the JS environment.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --off=enums --off=macros
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --off=enums --off=macros
 ```
 
 ##### `--define`
@@ -469,7 +483,7 @@ $ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --off=enums --off=macros
 Define a macro for the clang preprocessor.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --define FOO --define BAR=42
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --define FOO --define BAR=42
 ```
 
 ##### `--defines`
@@ -483,7 +497,7 @@ BAR=42
 ```
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --defines macro_defines.txt
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --defines macro_defines.txt
 ```
 
 ##### `--include`
@@ -491,7 +505,7 @@ $ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --defines macro_defines.
 Add include path to search for other files.
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --include path/to/the/include/folder/
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --include path/to/the/include/folder/
 ```
 
 ##### `--includes`
@@ -505,7 +519,7 @@ other/path/to/other/folder
 ```
 
 ```bash
-$ tools/iotjs_module_generator.py <INPUT_FOLDER> <LANG> --includes includes.txt
+$ tools/iotjs-generate-module.py <INPUT_FOLDER> <LANG> --includes includes.txt
 ```
 
 ## Quick example:
@@ -536,7 +550,7 @@ void bar(); // print "Hello!"
 #### Build:
 ```bash
 # assuming you are in iotjs folder
-$ tools/iotjs_module_generator.py ../my_api/ c
+$ tools/iotjs-generate-module.py ../my_api/ c
 tools/build.py --external-module=tools/module_generator/output/my_api_module --cmake-param=-DENABLE_MODULE_MY_API_MODULE=ON
 ```
 
