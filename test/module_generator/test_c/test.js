@@ -1,4 +1,4 @@
-/* Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
+/* Copyright 2019-present Samsung Electronics Co., Ltd. and other contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
  */
 
 var assert = require("assert");
-var lib = require("test_cpp_module");
+var lib = require("test_c_module");
 
 // MACROS
 assert.equal(lib.BIN, 5);
@@ -213,148 +213,3 @@ assert.equal(u.i, 0);
 lib.f_union_ptr(u);
 assert.equal(u.c, 'A');
 assert.equal(u.i, 65);
-
-// CLASS
-test = new lib.Test();
-
-// public members
-assert.equal(test.c, '\u0000');
-assert.equal(test.i, 0);
-assert.equal(test.f, 0);
-assert.equal(test.d, 0);
-assert.equal(test.b, false);
-assert.equal(test.c_ptr, null);
-assert.equal(test.c_arr, '');
-assert.equal(test.i_ptr, null);
-assert.equal(test.i_arr.length, 5);
-for (var i = 0; i < 5; i++) {
- assert.equal(test.i_arr[i], 0);
-}
-// char
-test.c = 'Z';
-assert.equal(test.c, 'Z');
-// int
-test.i = 42;
-assert.equal(test.i, 42);
-// float
-test.f = 1.5;
-assert.equal(test.f, 1.5);
-// double
-test.d = 2.5;
-assert.equal(test.d, 2.5);
-// bool
-test.b = true;
-assert(test.b);
-// char*
-test.c_ptr = 'abcdefghijklmnopqrstuvwxyz';
-assert.equal(test.c_ptr, 'abcdefghijklmnopqrstuvwxyz');
-test.c_ptr = '';
-assert.equal(test.c_ptr, '');
-// char[]
-test.c_arr = 'a';
-assert.equal(test.c_arr, 'a');
-test.c_arr = 'ab';
-assert.equal(test.c_arr, 'ab');
-test.c_arr = 'abc';
-assert.equal(test.c_arr, 'abc');
-test.c_arr = 'abcd';
-assert.equal(test.c_arr, 'abcd');
-test.c_arr = 'abcde';
-assert.equal(test.c_arr, 'abcd');
-// int*
-test.i_ptr = i_ptr;
-assert.equal(test.i_ptr[0], 42);
-assert.equal(test.i_ptr[0], i_ptr[0]);
-assert(test.i_ptr instanceof Int32Array);
-test.i_ptr = null;
-assert.equal(test.i_ptr, null);
-// int[]
-assert(test.i_arr instanceof Int32Array);
-for (var i = 0; i < 5; i++) {
- test.i_arr[i] = i*i;
-}
-for (var i = 0; i < 5; i++) {
- assert.equal(test.i_arr[i], i*i);
-}
-test.i_arr = null;
-assert(test.i_arr instanceof Int32Array);
-// S struct
-test.s = s;
-assert.equal(test.s.i, 42);
-assert.equal(test.s.c, 's');
-// U union
-test.u = u;
-assert.equal(test.u.i, 65);
-assert.equal(test.u.c, 'A');
-// O class
-assert.equal(test.o.get_i(), 42);
-var o = new lib.O();
-o.set_i(100);
-test.o = o;
-assert.equal(test.o.get_i(), 100);
-// private members
-assert.equal(test.get_c(), '\u0000');
-assert.equal(test.get_i(), 0);
-assert.equal(test.get_f(), 0);
-assert.equal(test.get_d(), 0);
-assert.equal(test.get_b(), false);
-assert.equal(test.get_c_ptr(), null);
-assert.equal(test.get_c_arr(), '');
-assert.equal(test.get_i_ptr(), null);
-assert.equal(test.get_i_arr()[0], 0);
-assert(test.get_i_arr() instanceof Int32Array);
-// char
-test.set_c('Z');
-assert.equal(test.get_c(), 'Z');
-// int
-test.set_i(42);
-assert.equal(test.get_i(), 42);
-// float
-test.set_f(1.5);
-assert.equal(test.get_f(), 1.5);
-// double
-test.set_d(2.5);
-assert.equal(test.get_d(), 2.5);
-// bool
-test.set_b(true);
-assert(test.get_b());
-// char*
-test.set_c_ptr('abcde', 5);
-assert.equal(test.get_c_ptr(), 'abcde');
-// char[]
-test.set_c_arr('abcd');
-assert.equal(test.get_c_arr(), 'abcd');
-// int*
-test.set_i_ptr(i_ptr, 1);
-assert.equal(test.get_i_ptr()[0], 42);
-// int[]
-test.set_i_arr(i_ptr);
-assert.equal(test.get_i_arr()[0], 42);
-// S struct
-test.set_s(s);
-assert.equal(test.get_s().i, 42);
-assert.equal(test.get_s().c, 's');
-// U union
-test.set_u(u);
-assert.equal(test.get_u().i, 65);
-assert.equal(test.get_u().c, 'A');
-// O class
-assert.equal(test.get_o().get_i(), 42);
-test.set_o(o);
-assert.equal(test.get_o().get_i(), 100);
-
-// NAMESPACE
-test_ns_A = new lib.test_ns.A();
-assert.equal(test_ns_A.foo(), 1);
-test_ns_nested_ns_A = new lib.test_ns.nested_ns.A();
-assert.equal(test_ns_nested_ns_A.foo(), 2);
-
-with (lib.test_ns) {
-  test_ns_A = new A();
-  assert.equal(test_ns_A.foo(), 1);
-
-  with (nested_ns) {
-    test_ns_nested_ns_A = new A();
-    assert.equal(test_ns_nested_ns_A.foo(), 2);
-  }
-}

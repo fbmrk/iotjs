@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
+# Copyright 2019-present Samsung Electronics Co., Ltd. and other contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -419,8 +419,7 @@ class CSourceGenerator(object):
 
         return '\n'.join(result)
 
-    def create_c_function(self, node, funcname, name):
-        func = node.get_as_function()
+    def create_c_function(self, func, funcname, name):
         params = []
         create_val = []
         res= ''
@@ -483,13 +482,13 @@ class CSourceGenerator(object):
             ret_type = func.return_type.name
             params = ', '.join([p.type.name for p in func.params])
             result = self.js_to_function(funcname, name, jval, ret_type, params)
-            callback = self.create_c_function(param, funcname, name)
+            callback = self.create_c_function(func, funcname, name)
         elif param.type.is_function():
             func = param.get_as_function()
             ret_type = func.return_type.name
             params = ', '.join([p.type.name for p in func.params])
             result = self.js_to_function(funcname, name, jval, ret_type, params)
-            callback = self.create_c_function(param, funcname, name)
+            callback = self.create_c_function(func, funcname, name)
         else:
             result = self.js_to_c(param.type, name, jval)
             if param.type.is_pointer():

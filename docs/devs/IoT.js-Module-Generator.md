@@ -1,6 +1,8 @@
 # C/C++ API to IoT.js module generator
 
-The module generator is an automatic code generating tool. It generates a binding layer between a C/C++ API and the IoT.js framework and creates a native module which can be easily imported and used in JavaScript.
+The module generator is an automatic code generating tool, which gives help for developers to avoid writing lots of code. It generates a binding layer between a C/C++ API and the IoT.js framework and creates a native module which can be easily imported and used in JavaScript.
+
+**NOTE:** The tool can't handle perfect when there are complex user-defined types, pointers to structures, multiple indirections etc. in the native library.
 
 The input of the generator is a directory, which contains the C/C++ header files and the static library of the API.
 
@@ -564,4 +566,151 @@ console.log(x); // print 4
 c_lib.bar(); // print 'Hello!'
 console.log(c_lib.N); // print 10
 console.log(c_lib.B); // print 1
+```
+
+#### Generated binding layer:
+my_api_js_binding.c:
+```c
+#include <stdlib.h>
+#include <string.h>
+#include "jerryscript.h"
+#include "my_api_js_binding.h"
+
+
+// external function for API functions or for getters / setters
+jerry_value_t bar_handler (const jerry_value_t function_obj,
+                      const jerry_value_t this_val,
+                      const jerry_value_t args_p[],
+                      const jerry_length_t args_cnt)
+{
+
+  // check the count of the external function's arguments
+  if (args_cnt != 0)
+  {
+    char const *msg = "Wrong argument count for bar(), expected 0.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
+  }
+
+  // native function call
+  bar ();
+
+
+  jerry_value_t ret_val = jerry_create_undefined ();
+
+  return ret_val;
+}
+
+
+// external function for API functions or for getters / setters
+jerry_value_t foo_handler (const jerry_value_t function_obj,
+                      const jerry_value_t this_val,
+                      const jerry_value_t args_p[],
+                      const jerry_length_t args_cnt)
+{
+
+  // check the count of the external function's arguments
+  if (args_cnt != 1)
+  {
+    char const *msg = "Wrong argument count for foo(), expected 1.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
+  }
+
+
+  // check the type of a jerry_value_t variable
+  if (!jerry_value_is_number (args_p[0]))
+  {
+    char const *msg = "Wrong argument type for foo(), expected number.";
+    return jerry_create_error (JERRY_ERROR_TYPE, (const jerry_char_t*)msg);
+  }
+
+  // create an integer / floating point number from a jerry_value_t
+  int arg_0 = (int)jerry_get_number_value (args_p[0]);
+
+  // native function call
+  int result = foo (arg_0);
+
+
+  jerry_value_t ret_val = jerry_create_number (result);
+
+  return ret_val;
+}
+
+
+// init function for the module
+jerry_value_t Init_my_api()
+{
+
+  jerry_value_t object = jerry_create_object();
+
+
+  // set an external function as a property to the module object
+  jerry_value_t bar_name = jerry_create_string ((const jerry_char_t*)"bar");
+  jerry_value_t bar_func = jerry_create_external_function (bar_handler);
+  jerry_value_t bar_ret = jerry_set_property (object, bar_name, bar_func);
+  jerry_release_value (bar_name);
+  jerry_release_value (bar_func);
+  jerry_release_value (bar_ret);
+
+
+  // set an external function as a property to the module object
+  jerry_value_t foo_name = jerry_create_string ((const jerry_char_t*)"foo");
+  jerry_value_t foo_func = jerry_create_external_function (foo_handler);
+  jerry_value_t foo_ret = jerry_set_property (object, foo_name, foo_func);
+  jerry_release_value (foo_name);
+  jerry_release_value (foo_func);
+  jerry_release_value (foo_ret);
+
+
+  // set an enum constant as a property to the module object
+  jerry_property_descriptor_t A_prop_desc;
+  jerry_init_property_descriptor_fields (&A_prop_desc);
+  A_prop_desc.is_value_defined = true;
+  A_prop_desc.value = jerry_create_number (A);
+  jerry_value_t A_name = jerry_create_string ((const jerry_char_t *)"A");
+  jerry_value_t A_ret = jerry_define_own_property (object, A_name, &A_prop_desc);
+  jerry_release_value (A_ret);
+  jerry_release_value (A_name);
+  jerry_free_property_descriptor_fields (&A_prop_desc);
+
+
+  // set an enum constant as a property to the module object
+  jerry_property_descriptor_t B_prop_desc;
+  jerry_init_property_descriptor_fields (&B_prop_desc);
+  B_prop_desc.is_value_defined = true;
+  B_prop_desc.value = jerry_create_number (B);
+  jerry_value_t B_name = jerry_create_string ((const jerry_char_t *)"B");
+  jerry_value_t B_ret = jerry_define_own_property (object, B_name, &B_prop_desc);
+  jerry_release_value (B_ret);
+  jerry_release_value (B_name);
+  jerry_free_property_descriptor_fields (&B_prop_desc);
+
+
+  // set an enum constant as a property to the module object
+  jerry_property_descriptor_t C_prop_desc;
+  jerry_init_property_descriptor_fields (&C_prop_desc);
+  C_prop_desc.is_value_defined = true;
+  C_prop_desc.value = jerry_create_number (C);
+  jerry_value_t C_name = jerry_create_string ((const jerry_char_t *)"C");
+  jerry_value_t C_ret = jerry_define_own_property (object, C_name, &C_prop_desc);
+  jerry_release_value (C_ret);
+  jerry_release_value (C_name);
+  jerry_free_property_descriptor_fields (&C_prop_desc);
+
+
+  jerry_value_t N_js = jerry_create_number (N);
+
+
+  // set a global constant or a macro as a property to the module object
+  jerry_property_descriptor_t N_prop_desc;
+  jerry_init_property_descriptor_fields (&N_prop_desc);
+  N_prop_desc.is_value_defined = true;
+  N_prop_desc.value = N_js;
+  jerry_value_t N_prop_name = jerry_create_string ((const jerry_char_t *)"N");
+  jerry_value_t N_return_value = jerry_define_own_property (object, N_prop_name, &N_prop_desc);
+  jerry_release_value (N_return_value);
+  jerry_release_value (N_prop_name);
+  jerry_free_property_descriptor_fields (&N_prop_desc);
+
+  return object;
+}
 ```

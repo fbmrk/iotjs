@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
+# Copyright 2019-present Samsung Electronics Co., Ltd. and other contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 import sys
 import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 from common_py import path
 from common_py.system.executor import Executor as ex
 from common_py.system.filesystem import FileSystem as fs
@@ -33,7 +33,7 @@ def print_blue(msg):
     print ('\033[1;34m{}\033[00m'.format(msg))
 
 def test_c():
-    test_dir = fs.join(module_generator_dir, 'test_c')
+    test_dir = fs.join(os.path.dirname(__file__), 'test_c')
     test_c = fs.join(test_dir, 'test.c')
 
     # Compile test.c and make a static library
@@ -62,7 +62,7 @@ def test_c():
     print_green('C test succeeded.')
 
 def test_cpp():
-    test_dir = fs.join(module_generator_dir, 'test_cpp')
+    test_dir = fs.join(os.path.dirname(__file__), 'test_cpp')
     test_cpp = fs.join(test_dir, 'test.cpp')
 
     # Compile test.c and make a static library

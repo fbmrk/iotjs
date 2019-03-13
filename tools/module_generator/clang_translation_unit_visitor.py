@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2018-present Samsung Electronics Co., Ltd. and other contributors
+# Copyright 2019-present Samsung Electronics Co., Ltd. and other contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -189,14 +189,13 @@ class ClangFunctionDecl(ClangASTNode):
         self._parm_decls = []
         if cursor.type.kind == TypeKind.TYPEDEF:
             children = cursor.type.get_declaration().get_children()
-            function_arguments = [child for child in children
-                                  if child.kind == CursorKind.PARM_DECL]
         else:
-            function_arguments = cursor.get_arguments()
+            children = cursor.get_children()
 
-        for arg in function_arguments:
-            arg = ClangASTNode(arg)
-            self._parm_decls.append(arg)
+        for arg in children:
+            if arg.kind == CursorKind.PARM_DECL:
+                arg = ClangASTNode(arg)
+                self._parm_decls.append(arg)
 
     @property
     def return_type(self):

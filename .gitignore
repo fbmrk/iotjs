@@ -9,10 +9,10 @@
 /test/tmp/*
 /test/dynamicmodule/build/*
 /tools/module_generator/output
-/tools/module_generator/test_c/*.a
-/tools/module_generator/test_c/*.o
-/tools/module_generator/test_cpp/*.a
-/tools/module_generator/test_cpp/*.o
+/test/module_generator/test_c/*.a
+/test/module_generator/test_c/*.o
+/test/module_generator/test_cpp/*.a
+/test/module_generator/test_cpp/*.o
 eslint.log
 
 # IDE related files
