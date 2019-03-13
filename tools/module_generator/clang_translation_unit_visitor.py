@@ -14,8 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clang.cindex import Config, Index, conf, CursorKind, TypeKind, \
-    AccessSpecifier
+from clang.cindex import Index, conf, CursorKind, TypeKind, AccessSpecifier
 
 # This class is a wrapper for the TypeKind and Type classes.
 class ClangASTNodeType:
@@ -494,8 +493,6 @@ class ClangNamespace:
 # the AST provided by libclang.
 class ClangTUVisitor:
     def __init__(self, lang, header, api_headers, check_all, args):
-        # TODO: Avoid hard-coding paths and args in general.
-        Config.set_library_file('libclang-6.0.so.1')
         index = Index.create()
 
         self.is_cpp = True if lang == 'c++' else False

@@ -35,9 +35,18 @@ apt install libclang1-6.0
 ```bash
 apt install python-clang-6.0
 ```
-
+or
+```bash
+pip install clang
+```
 (The tool has been tested with the 5.0 and 6.0 versions.)
 
+**NOTE:** The python binding searches for `libclang.so` as deafult. After installing `libclang1-6.0` you should add a symlink to `path/to/libclang-6.0.so` like below:
+
+```bash
+cd /usr/lib/x86_64-linux-gnu/
+sudo ln -s libclang-6.0.so libclang.so
+```
 
 ## Features:
 
